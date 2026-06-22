@@ -76,7 +76,11 @@ else
   echo "  • manual install (no answer.toml) — skip"
 fi
 
-echo "  i  tailscale/acl.hujson stays a template — swap you@example.com + CIDR when pasting into Tailscale"
+if [ -f tailscale/acl.hujson ]; then
+  grep -qE 'example\.com|192\.168\.x' tailscale/acl.hujson && bad "tailscale/acl.hujson still has placeholder login/CIDR"
+else
+  echo "  i  copy tailscale/acl.hujson.example -> tailscale/acl.hujson, fill login+CIDR, paste into Tailscale"
+fi
 echo
 if [ "$fail" = 0 ]; then echo "✅ config complete — safe to deploy"; else echo "❌ fix the above before deploying"; fi
 exit "$fail"

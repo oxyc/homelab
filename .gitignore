@@ -14,6 +14,9 @@ ansible/group_vars/all.yml
 # proxmox unattended-install answer (has the hashed root pw)
 proxmox/answer.toml
 
+# tailnet ACL with your real login/CIDR (template is acl.hujson.example)
+tailscale/acl.hujson
+
 # docs / planning — kept local only
 docs/
 
