@@ -28,6 +28,11 @@ services:
 
   caddy:
     image: caddy:${CADDY_VERSION:-2}
+    # For real certs on *.h.oxy.fi (Cloudflare DNS-01), swap the stock image for the
+    # custom build with the cloudflare DNS module (comment image above, uncomment build):
+    # build:
+    #   context: ./caddy
+    #   args: { CADDY_VERSION: "${CADDY_VERSION:-2}" }
     container_name: caddy
     restart: unless-stopped
     env_file: .env
