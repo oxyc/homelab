@@ -10,6 +10,9 @@ ansible/inventory.yml
 *.retry
 .vault_pass
 
+# docs / planning — kept local only
+docs/
+
 # local / editor
 .DS_Store
 *.swp
