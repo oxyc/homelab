@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Native pre-commit hook (no framework needed). Install:  make hooks
+# Skips any tool that isn't installed; the GitHub Actions CI runs the full set.
+set -uo pipefail
+root="$(git rev-parse --show-toplevel)"; cd "$root"
+fail=0
+echo "▶ pre-commit checks"
+
+# 1) never commit a real secrets file (.env / secrets.yaml)
+if git diff --cached --name-only | grep -E '(^|/)\.env$|secrets\.yaml$'; then
+  echo "  ✖ refusing to commit a secrets file"; fail=1
+fi
+
+# 2) YAML lint (optional)
+if command -v yamllint >/dev/null 2>&1; then
+  yamllint . && echo "  ✓ yamllint" || fail=1
+else
+  echo "  • yamllint not installed — skipped"
+fi
+
+# 3) docker compose validation, both profiles (optional)
+if docker compose version >/dev/null 2>&1; then
+  tmp=0; [ -f docker/.env ] || { cp .env.example docker/.env; tmp=1; }
+  if (cd docker && docker compose config -q && docker compose --profile homekit config -q); then
+    echo "  ✓ docker compose (default + homekit)"
+  else
+    fail=1
+  fi
+  [ "$tmp" = 1 ] && rm -f docker/.env
+else
+  echo "  • docker not available — compose check skipped"
+fi
+
+# 4) secret scan (optional)
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks protect --staged --no-banner && echo "  ✓ gitleaks" || fail=1
+else
+  echo "  • gitleaks not installed — skipped (CI covers it)"
+fi
+
+if [ "$fail" = 0 ]; then echo "✔ all checks passed"; else echo "✘ checks failed — commit aborted"; fi
+exit "$fail"

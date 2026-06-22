@@ -6,6 +6,10 @@ help:           ## Show this help
 deps:           ## Install ansible collections
 	cd ansible && ansible-galaxy collection install -r requirements.yml
 
+hooks:          ## Install the local git pre-commit hook
+	git config core.hooksPath .githooks
+	@echo "git hooks installed (.githooks/)"
+
 lint:           ## yamllint + ansible-lint
 	yamllint .
 	cd ansible && ansible-lint

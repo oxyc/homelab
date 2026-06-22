@@ -40,6 +40,10 @@ docker compose up                           # frigate + caddy (HomeKit OFF by de
 
 Common tasks via `make` (run `make help`): `validate`, `up`, `homekit`, `check`, `down`.
 
+Install the local pre-commit hook (validates compose + scans for secrets, skips tools
+you don't have): `make hooks`. The same checks run in GitHub Actions on every push
+(public repo → free unlimited CI).
+
 ## HomeKit (off by default)
 
 Scrypted is built in but **disabled** behind a compose profile, so the live stack is
