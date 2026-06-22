@@ -7,7 +7,7 @@ name: homelab
 
 services:
   frigate:
-    image: ghcr.io/blakeblackshear/frigate:stable
+    image: ghcr.io/blakeblackshear/frigate:${FRIGATE_VERSION:-stable}
     container_name: frigate
     restart: unless-stopped
     shm_size: "256mb"          # 2 cameras; bump if you add more
@@ -27,7 +27,7 @@ services:
       - "8555:8555/udp"
 
   caddy:
-    image: caddy:2
+    image: caddy:${CADDY_VERSION:-2}
     container_name: caddy
     restart: unless-stopped
     env_file: .env
@@ -41,7 +41,7 @@ services:
 
   # --- HomeKit / HKSV: DISABLED until you opt in (see profile note at top) ---
   scrypted:
-    image: ghcr.io/koush/scrypted:latest
+    image: ghcr.io/koush/scrypted:${SCRYPTED_VERSION:-latest}
     container_name: scrypted
     restart: unless-stopped
     profiles: ["homekit"]      # not started by a plain `docker compose up`

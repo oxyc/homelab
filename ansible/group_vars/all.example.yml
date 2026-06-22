@@ -4,6 +4,9 @@
 compose_profiles: []
 # compose_profiles: [homekit]
 
+# HAOS image to download for the VM (pin a version).
+haos_image_url: "https://github.com/home-assistant/operating-system/releases/download/14.0/haos_ova-14.0.qcow2.xz"
+
 # Tailscale auth key (secret — real value in Bitwarden `homelab-env`).
 # Generate a reusable/pre-auth key in the Tailscale admin console.
 ts_authkey: "tskey-auth-CHANGEME"
