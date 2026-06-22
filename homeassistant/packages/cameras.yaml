@@ -1,0 +1,25 @@
+# Camera/doorbell automations as code (driven by Frigate's MQTT events).
+# Frigate publishes frigate/events; this notifies on a person/package at the door.
+automation:
+  - alias: "Doorbell - person at the door"
+    id: doorbell_person_notify
+    trigger:
+      - platform: mqtt
+        topic: frigate/events
+    condition:
+      - condition: template
+        value_template: >-
+          {{ trigger.payload_json['after']['camera'] == 'doorbell'
+             and trigger.payload_json['type'] == 'new'
+             and trigger.payload_json['after']['label'] in ['person', 'package'] }}
+    action:
+      - service: notify.notify
+        data:
+          title: "Front door"
+          message: >-
+            {{ trigger.payload_json['after']['label'] | capitalize }} detected at the door
+          data:
+            # Frigate snapshot for the event
+            image: >-
+              https://ha.home/api/frigate/notifications/{{ trigger.payload_json['after']['id'] }}/snapshot.jpg
+    mode: single

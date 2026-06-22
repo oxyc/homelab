@@ -1,0 +1,5 @@
+# tailscale defaults
+ts_hostname: pve
+ts_ssh: true                 # enable Tailscale SSH (phone -> server, no keys)
+ts_advertise_routes: ""      # e.g. "192.168.10.0/24" to also reach HA/Frigate via the tailnet
+# ts_authkey: set in group_vars/all.yml (secret, from Bitwarden)

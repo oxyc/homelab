@@ -1,0 +1,26 @@
+# Tailscale on the Proxmox host: SSH in from your phone over the tailnet, no keys/ports.
+- name: Install Tailscale
+  ansible.builtin.shell: curl -fsSL https://tailscale.com/install.sh | sh
+  args:
+    creates: /usr/bin/tailscale
+
+- name: Enable IP forwarding (only needed if advertising routes)
+  ansible.posix.sysctl:
+    name: "{{ item }}"
+    value: "1"
+    state: present
+    reload: true
+  loop:
+    - net.ipv4.ip_forward
+    - net.ipv6.conf.all.forwarding
+  when: ts_advertise_routes | length > 0
+
+- name: Bring up Tailscale (idempotent — re-applies flags)
+  ansible.builtin.command:
+    cmd: >-
+      tailscale up --authkey={{ ts_authkey }} --hostname={{ ts_hostname }}
+      {{ '--ssh' if ts_ssh else '' }}
+      {{ '--advertise-routes=' + ts_advertise_routes if ts_advertise_routes | length > 0 else '' }}
+  register: ts_up
+  changed_when: "'Success' in ts_up.stderr or ts_up.rc == 0"
+  no_log: true                # contains the auth key

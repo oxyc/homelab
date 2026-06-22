@@ -3,3 +3,8 @@
 # Add 'homekit' and re-run (make deploy) to also bring up Scrypted.
 compose_profiles: []
 # compose_profiles: [homekit]
+
+# Tailscale auth key (secret — real value in Bitwarden `homelab-env`).
+# Generate a reusable/pre-auth key in the Tailscale admin console.
+ts_authkey: "tskey-auth-CHANGEME"
+# ts_advertise_routes: "192.168.10.0/24"   # set to also reach HA/Frigate via tailnet

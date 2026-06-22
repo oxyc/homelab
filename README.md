@@ -63,4 +63,6 @@ setup + HomeKit pairing. The go2rtc restreams Scrypted consumes already exist in
 - CX820 main is H.265 (recorded raw); only the HomeKit path transcodes, on the iGPU.
 - Doorbell is the **Reolink PoE Video Doorbell** (2K, 4:3) — keep its main H.264 if possible (HomeKit-friendly, no transcode).
 - Scrypted camera setup and HomeKit pairing are manual (not automated).
+- Remote access: **Tailscale** on the host (`--ssh`) — SSH from your phone, no ports/keys. (`ansible/roles/tailscale`)
+- Home Assistant config-as-code under `homeassistant/` (Matter + Frigate cameras; no Zigbee). Most of it is code; Matter pairing + add-on install stay in the UI.
 - Backups: `restic` → Backblaze B2 (HA state); Proxmox `vzdump` → NVMe (local). Footage and Scrypted pairings are not backed up.

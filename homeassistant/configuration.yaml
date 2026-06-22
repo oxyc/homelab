@@ -1,0 +1,4 @@
+# Add this include to your real /config/configuration.yaml (keep default_config etc.).
+# Automations/helpers then live as code under packages/.
+homeassistant:
+  packages: !include_dir_named packages
