@@ -1,5 +1,8 @@
-# Local HTTPS reverse proxy. Internal names resolved by Omada DNS (*.home).
-# Default: Caddy's internal CA (self-signed root you trust once on your devices).
+# Local HTTPS reverse proxy. Naming scheme (see docs/dns.md):
+#   *.home  -> this Caddy (one Omada DNS record: *.home -> docker-lxc IP); Caddy fans out.
+#   Works on LAN and over Tailscale (split-DNS for `home`).
+#   Proxmox is NOT here — reach it directly as https://pve:8006 (Tailscale MagicDNS node).
+# Default: Caddy's internal CA (trust the root once on your devices).
 # For real certs on *.home, use a DNS-01 challenge with {env.CLOUDFLARE_API_TOKEN}.
 
 {

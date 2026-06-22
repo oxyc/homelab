@@ -7,6 +7,7 @@ compose_profiles: []
 # Tailscale auth key (secret — real value in Bitwarden `homelab-env`).
 # Generate a reusable/pre-auth key in the Tailscale admin console.
 ts_authkey: "tskey-auth-CHANGEME"
+ts_hostname: pve              # tailnet node name -> `ssh root@pve`, https://pve:8006
 # Advertise the home LAN so the phone reaches HA/Frigate/cameras through the host
 # (the single "way in"). Set to your real LAN CIDR; approve via tailscale/acl.hujson.
 ts_advertise_routes: "192.168.10.0/24"
