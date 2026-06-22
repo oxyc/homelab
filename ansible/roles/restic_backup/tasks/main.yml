@@ -83,6 +83,14 @@
         [Install]
         WantedBy=timers.target
   delegate_to: "{{ docker_lxc_ip }}"
+
+- name: Enable + start the restic timer
+  ansible.builtin.systemd:
+    name: restic-backup.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  delegate_to: "{{ docker_lxc_ip }}"
 # HA side (manual, one-time): Settings -> System -> Storage -> Add network storage (SMB):
 #   host = <docker_lxc_ip>, share = habackup, user/pass = habackup / SMB_PASSWORD,
 #   usage = Backups. Then set it as the backup location and schedule backups.

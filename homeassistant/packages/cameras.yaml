@@ -19,7 +19,8 @@ automation:
           message: >-
             {{ trigger.payload_json['after']['label'] | capitalize }} detected at the door
           data:
-            # Frigate snapshot for the event
+            # Relative path → the mobile app resolves it against its own HA URL.
+            # Requires the Frigate HA integration (provides /api/frigate/...).
             image: >-
-              https://ha.home/api/frigate/notifications/{{ trigger.payload_json['after']['id'] }}/snapshot.jpg
+              /api/frigate/notifications/{{ trigger.payload_json['after']['id'] }}/snapshot.jpg
     mode: single

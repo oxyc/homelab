@@ -16,6 +16,11 @@ ts_hostname: pve              # tailnet node name -> `ssh root@pve`, https://pve
 admin_user: oxyc
 admin_github_user: oxyc        # SSH keys auto-pulled from https://github.com/<user>.keys
 haos_ip: 192.168.x.x           # HA VM IP (VLAN10) — host alerts (smartd) POST to its webhook
+
+# Proxmox API (the proxmox/proxmox_kvm modules talk to the local PVE API)
+pve_api_host: 127.0.0.1
+pve_api_user: root@pam
+pve_api_password: "{{ lookup('ansible.builtin.env', 'PVE_PASSWORD') }}"   # root pw, from .env
 # Advertise the home LAN so the phone reaches HA/Frigate/cameras through the host
 # (the single "way in"). Set to your real LAN CIDR; approve via tailscale/acl.hujson.
 ts_advertise_routes: "192.168.10.0/24"

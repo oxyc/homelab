@@ -8,6 +8,13 @@
 - name: Provision homelab
   hosts: pve
   gather_facts: true
+  module_defaults:
+    community.proxmox.proxmox: &pve_api
+      api_host: "{{ pve_api_host }}"
+      api_user: "{{ pve_api_user }}"
+      api_password: "{{ pve_api_password }}"
+      validate_certs: false
+    community.proxmox.proxmox_kvm: *pve_api
   roles:
     - role: proxmox_host       # repos, NVMe ext4 + mount, network bridges/VLAN, /dev/dri perms
       tags: [host]

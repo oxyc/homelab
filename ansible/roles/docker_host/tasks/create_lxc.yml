@@ -1,4 +1,5 @@
-# Create the privileged LXC + install Docker. Needs a real Proxmox host.
+# Create the privileged LXC and bootstrap it so ansible can reach it (SSH key + python).
+# Runs on the pve host; uses `pct` for the bits that must happen before SSH works.
 - name: Create privileged Docker LXC
   community.proxmox.proxmox:
     vmid: "{{ docker_ctid }}"
@@ -10,9 +11,10 @@
     unprivileged: false                 # needed for /dev/dri passthrough
     features: "nesting=1"
     netif: '{"net0":"name=eth0,bridge=vmbr0,ip=dhcp"}'
+    pubkey: "{{ lookup('ansible.builtin.url', 'https://github.com/' + admin_github_user + '.keys', split_lines=false) }}"
     state: present
 
-# /dev/dri passthrough must be added to the CT config (idempotent append).
+# /dev/dri passthrough — written before first boot so it applies on start.
 - name: Bind host iGPU into the LXC
   ansible.builtin.blockinfile:
     path: "/etc/pve/lxc/{{ docker_ctid }}.conf"
@@ -26,8 +28,21 @@
     vmid: "{{ docker_ctid }}"
     state: started
 
-- name: Install Docker in the LXC
-  ansible.builtin.shell: curl -fsSL https://get.docker.com | sh
-  args:
-    creates: /usr/bin/docker
-  delegate_to: "{{ docker_lxc_ip }}"
+- name: Bootstrap python + ssh inside the LXC (via pct — no SSH needed yet)
+  ansible.builtin.command: >-
+    pct exec {{ docker_ctid }} -- sh -c
+    'apt-get update -qq && apt-get install -y -qq python3 curl openssh-server && systemctl enable --now ssh'
+  changed_when: true
+
+- name: Register the LXC as a delegation target (root + key)
+  ansible.builtin.add_host:
+    name: "{{ docker_lxc_ip }}"
+    ansible_host: "{{ docker_lxc_ip }}"
+    ansible_user: root
+  changed_when: false
+
+- name: Install Docker in the LXC (via pct, idempotent)
+  ansible.builtin.command: >-
+    pct exec {{ docker_ctid }} -- sh -c
+    'command -v docker >/dev/null || curl -fsSL https://get.docker.com | sh'
+  changed_when: true
