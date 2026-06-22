@@ -1,0 +1,27 @@
+// Tailscale ACLs for the homelab tailnet (single user, no open ports).
+// Paste into admin console -> Access Controls, or sync via the Tailscale GitHub Action.
+// Replace the LAN CIDR and the login below with your real values.
+{
+  // Connectivity: your own devices can reach each other + the LAN via the subnet router.
+  "acls": [
+    {"action": "accept", "src": ["autogroup:member"], "dst": ["*:*"]},
+  ],
+
+  // Auto-approve the home LAN route advertised by the Proxmox host (no manual approval).
+  "autoApprovers": {
+    "routes": {
+      "192.168.10.0/24": ["you@example.com"], // <- your tailnet login + real LAN CIDR
+    },
+  },
+
+  // Tailscale SSH: your devices -> your own machines, re-auth on connect ("check").
+  // This block is REQUIRED for `tailscale up --ssh` to actually allow SSH.
+  "ssh": [
+    {
+      "action": "check",
+      "src": ["autogroup:member"],
+      "dst": ["autogroup:self"],
+      "users": ["autogroup:nonroot", "root"],
+    },
+  ],
+}
