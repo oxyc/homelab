@@ -7,9 +7,9 @@ compose_profiles: []
 # HAOS image to download for the VM (pin a version).
 haos_image_url: "https://github.com/home-assistant/operating-system/releases/download/14.0/haos_ova-14.0.qcow2.xz"
 
-# Tailscale auth key (secret — real value in Bitwarden `homelab-env`).
-# Generate a reusable/pre-auth key in the Tailscale admin console.
-ts_authkey: "tskey-auth-CHANGEME"
+# Tailscale auth key: NOT stored here. Read from the same .env (TS_AUTHKEY) so all
+# secrets live in one Bitwarden note. Export it before running, or pass -e ts_authkey=...
+ts_authkey: "{{ lookup('ansible.builtin.env', 'TS_AUTHKEY') }}"
 ts_hostname: pve              # tailnet node name -> `ssh root@pve`, https://pve:8006
 # Advertise the home LAN so the phone reaches HA/Frigate/cameras through the host
 # (the single "way in"). Set to your real LAN CIDR; approve via tailscale/acl.hujson.
