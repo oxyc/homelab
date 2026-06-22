@@ -27,12 +27,12 @@ services:
       - "8555:8555/udp"
 
   caddy:
-    image: caddy:${CADDY_VERSION:-2}
-    # For real certs on *.h.oxy.fi (Cloudflare DNS-01), swap the stock image for the
-    # custom build with the cloudflare DNS module (comment image above, uncomment build):
-    # build:
-    #   context: ./caddy
-    #   args: { CADDY_VERSION: "${CADDY_VERSION:-2}" }
+    # Custom build = Caddy + cloudflare DNS module (for wildcard DNS-01 certs).
+    build:
+      context: ./caddy
+      args:
+        CADDY_VERSION: "${CADDY_VERSION:-2}"
+    image: homelab-caddy:${CADDY_VERSION:-2}
     container_name: caddy
     restart: unless-stopped
     env_file: .env
