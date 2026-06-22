@@ -1,20 +1,14 @@
-# restic -> Backblaze B2. Client-side encrypted, scoped app key, systemd timer.
-# Backs up HA backups (incl .storage) + optionally secrets/vzdump. NOT Scrypted pairings.
+# restic -> Cloudflare R2 (S3). Client-side encrypted, systemd timer.
+# Backend-agnostic: reads RESTIC_REPOSITORY/RESTIC_PASSWORD + AWS_* creds straight from the
+# already-deployed /opt/homelab/.env (the one Bitwarden note). NOT Scrypted pairings.
 - name: Install restic
   ansible.builtin.apt:
     name: restic
     state: present
   delegate_to: "{{ docker_lxc_ip }}"
 
-- name: Deploy restic env (repo + B2 keys from docker/.env / Bitwarden)
-  ansible.builtin.template:
-    src: restic.env.j2          # RESTIC_REPOSITORY, RESTIC_PASSWORD, B2_ACCOUNT_ID/KEY
-    dest: /etc/restic.env
-    mode: "0600"
-  delegate_to: "{{ docker_lxc_ip }}"
-
 - name: Init repo (idempotent — ignores 'already initialized')
-  ansible.builtin.shell: set -a; . /etc/restic.env; restic snapshots >/dev/null 2>&1 || restic init
+  ansible.builtin.shell: set -a; . /opt/homelab/.env; set +a; restic snapshots >/dev/null 2>&1 || restic init
   changed_when: false
   delegate_to: "{{ docker_lxc_ip }}"
 
@@ -27,7 +21,7 @@
     - name: restic-backup.service
       content: |
         [Service]
-        EnvironmentFile=/etc/restic.env
+        EnvironmentFile=/opt/homelab/.env
         ExecStart=/usr/bin/restic backup /backups/ha --tag ha
         ExecStartPost=/usr/bin/restic forget --keep-daily 7 --keep-weekly 4 --prune
     - name: restic-backup.timer
@@ -38,4 +32,5 @@
         [Install]
         WantedBy=timers.target
   delegate_to: "{{ docker_lxc_ip }}"
-# TODO: ensure HA backups land in /backups/ha (HA backup automation -> shared path)
+# TODO: ensure HA backups land in /backups/ha (HA Google-Drive-style add-on -> shared path,
+#       or sync the HAOS VM's /backup into the LXC before restic runs).

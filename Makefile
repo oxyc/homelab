@@ -41,5 +41,8 @@ up:             ## Start the default stack (frigate + caddy)
 homekit:        ## Start incl. Scrypted (HomeKit/HKSV)
 	cd docker && docker compose --profile homekit up -d
 
+tunnel:         ## Start incl. Cloudflare Tunnel (HA via Zero Trust)
+	cd docker && docker compose --profile tunnel up -d
+
 down:           ## Stop the stack
 	cd docker && docker compose down

@@ -3,6 +3,7 @@
 #
 # Default `docker compose up`  => frigate + caddy (+ HA lives in its own VM).
 # HomeKit later                => `docker compose --profile homekit up -d`  (adds scrypted)
+# HA via Cloudflare Zero Trust => `docker compose --profile tunnel up -d`   (adds cloudflared)
 name: homelab
 
 services:
@@ -43,6 +44,17 @@ services:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+
+  # --- Cloudflare Tunnel: browser/family access to HA via Zero Trust (off by default) ---
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    restart: unless-stopped
+    profiles: ["tunnel"]       # docker compose --profile tunnel up -d
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN}
+    # No ports: outbound-only tunnel. Ingress + Access policy live in the CF dashboard.
 
   # --- HomeKit / HKSV: DISABLED until you opt in (see profile note at top) ---
   scrypted:
