@@ -1,0 +1,19 @@
+# Optional unattended Proxmox install (PVE 8.2+).
+# Bake into the ISO:  proxmox-auto-install-assistant prepare-iso proxmox-ve.iso \
+#   --fetch-from iso --answer-file answer.toml
+# Then boot the prepared USB — installs hands-off to the SSD.
+
+[global]
+keyboard = "en-us"
+country = "uy"
+fqdn = "pve.home"
+mailto = "you@example.com"
+timezone = "America/Montevideo"
+root_password = "CHANGE_ME"          # or root_password_hashed
+
+[network]
+source = "from-dhcp"
+
+[disk-setup]
+filesystem = "ext4"                  # NOT zfs (see decisions.md D5)
+disk_list = ["sda"]                  # the 512GB SSD; 2TB NVMe is added later by ansible

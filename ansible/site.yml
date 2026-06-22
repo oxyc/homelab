@@ -1,0 +1,19 @@
+# Top-level playbook. Run phases with tags:
+#   ansible-playbook site.yml --tags host
+#   ansible-playbook site.yml --tags haos
+#   ansible-playbook site.yml --tags docker
+#   ansible-playbook site.yml --tags backup
+# Always dry-run first on the real box:  --check --diff
+
+- name: Provision homelab
+  hosts: pve
+  gather_facts: true
+  roles:
+    - role: proxmox_host       # repos, NVMe ext4 + mount, network bridges/VLAN, /dev/dri perms
+      tags: [host]
+    - role: haos_vm            # download + create HAOS VM (then restore HA backup manually)
+      tags: [haos]
+    - role: docker_host        # create privileged LXC, install docker, sync ../docker, compose up
+      tags: [docker]
+    - role: restic_backup      # restic -> B2 systemd timer (HA backups + optional secrets/vzdump)
+      tags: [backup]

@@ -1,0 +1,19 @@
+# Copy to inventory.yml (gitignored) and fill in. For the nested-Proxmox dress
+# rehearsal, just point pve_host at the test VM's IP.
+all:
+  hosts:
+    pve:
+      ansible_host: 192.168.x.x        # Proxmox host
+      ansible_user: root
+  vars:
+    # storage
+    nvr_disk_device: /dev/nvme0n1      # 2TB NVMe -> ext4 -> /mnt/nvr
+    nvr_mount: /mnt/nvr
+
+    # guests
+    haos_vmid: 100
+    docker_ctid: 110                   # privileged LXC for the Docker stack
+    docker_lxc_ip: 192.168.x.x
+
+    # docker stack source (this repo, synced to the LXC)
+    compose_src: "../docker"

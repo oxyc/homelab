@@ -1,0 +1,54 @@
+# Runs inside one privileged Docker LXC with /dev/dri bound in (shared QuickSync).
+# Secrets/IPs come from ./.env (gitignored). Not committed: .env.
+name: homelab
+
+services:
+  frigate:
+    image: ghcr.io/blakeblackshear/frigate:stable
+    container_name: frigate
+    restart: unless-stopped
+    privileged: false
+    shm_size: "256mb"          # 2 cameras; bump if you add more
+    devices:
+      - /dev/dri:/dev/dri      # iGPU: vaapi decode for detect (record is copy, no decode)
+    env_file: .env
+    volumes:
+      - ./frigate/config.yml:/config/config.yml:ro
+      - frigate_data:/config
+      - type: bind
+        source: /mnt/nvr       # 2TB NVMe (ext4) bind-mounted from the LXC host
+        target: /media/frigate
+    ports:
+      - "5000:5000"            # behind Caddy
+      - "8554:8554"            # go2rtc RTSP restream (Scrypted/HA pull from here)
+      - "8555:8555/tcp"
+      - "8555:8555/udp"
+
+  scrypted:
+    image: ghcr.io/koush/scrypted:latest
+    container_name: scrypted
+    restart: unless-stopped
+    network_mode: host         # HomeKit/HKSV need host mDNS on the LAN
+    devices:
+      - /dev/dri:/dev/dri      # iGPU: H.265 -> H.264 transcode for HomeKit/HKSV
+    volumes:
+      - scrypted_data:/server/volume   # <-- HomeKit pairings live here (NOT backed up by choice)
+
+  caddy:
+    image: caddy:2
+    container_name: caddy
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  frigate_data:
+  scrypted_data:
+  caddy_data:
+  caddy_config:

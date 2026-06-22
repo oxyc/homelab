@@ -1,0 +1,26 @@
+# Local HTTPS reverse proxy. Internal names resolved by Omada DNS (*.home).
+# Default: Caddy's internal CA (self-signed root you trust once on your devices).
+# For real certs on *.home, use a DNS-01 challenge with {env.CLOUDFLARE_API_TOKEN}.
+
+{
+	# email you@example.com          # uncomment + DNS challenge for public certs
+}
+
+frigate.{$CADDY_LOCAL_DOMAIN} {
+	tls internal
+	reverse_proxy frigate:5000
+}
+
+scrypted.{$CADDY_LOCAL_DOMAIN} {
+	tls internal
+	reverse_proxy https://127.0.0.1:10443 {   # Scrypted is host-networked + self-signed
+		transport http {
+			tls_insecure_skip_verify
+		}
+	}
+}
+
+ha.{$CADDY_LOCAL_DOMAIN} {
+	tls internal
+	reverse_proxy <haos-vm-ip>:8123
+}

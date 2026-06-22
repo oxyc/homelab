@@ -1,0 +1,15 @@
+# secrets — never commit
+.env
+docker/.env
+**/secrets.yaml
+*.key
+*.pem
+
+# ansible
+ansible/inventory.yml
+*.retry
+.vault_pass
+
+# local / editor
+.DS_Store
+*.swp

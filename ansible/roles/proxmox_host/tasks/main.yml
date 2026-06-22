@@ -1,0 +1,28 @@
+# Proxmox host base config. Idempotent.
+- name: Use no-subscription repo (remove enterprise)
+  ansible.builtin.apt_repository:
+    repo: "deb http://download.proxmox.com/debian/pve {{ ansible_distribution_release }} pve-no-subscription"
+    filename: pve-no-subscription
+    state: present
+
+- name: Format NVR disk ext4
+  community.general.filesystem:
+    fstype: ext4
+    dev: "{{ nvr_disk_device }}"
+    # force: false  # NEVER set force on a disk with data
+
+- name: Mount NVR disk
+  ansible.posix.mount:
+    path: "{{ nvr_mount }}"
+    src: "{{ nvr_disk_device }}"
+    fstype: ext4
+    opts: defaults,noatime
+    state: mounted
+
+- name: Register NVR as Proxmox directory storage
+  ansible.builtin.command: "pvesm add dir nvr --path {{ nvr_mount }} --content backup,images,rootdir"
+  args:
+    creates: /etc/pve/storage.cfg.nvr.done   # guard; replace with a proper check
+
+# TODO: vmbrX bridge + VLAN-aware config for the camera VLAN
+# TODO: ensure render group + /dev/dri perms so the LXC can use QuickSync

@@ -1,0 +1,22 @@
+# Create the Home Assistant OS VM. HA itself is "provisioned" by restoring its
+# backup from B2 (see restic_backup) — Ansible only builds the VM shell.
+- name: Download latest HAOS qcow2
+  ansible.builtin.get_url:
+    url: "{{ haos_image_url }}"          # set in inventory; pin a version
+    dest: /var/lib/vz/template/haos.qcow2.xz
+    mode: "0644"
+
+- name: Create HAOS VM (UEFI/q35, 2 vCPU, 2GB)
+  community.general.proxmox_kvm:
+    vmid: "{{ haos_vmid }}"
+    node: "{{ ansible_hostname }}"
+    name: haos
+    cores: 2
+    memory: 2048
+    bios: ovmf
+    machine: q35
+    net: { net0: "virtio,bridge=vmbr0" }
+    scsihw: virtio-scsi-single
+    state: present
+  # TODO: import the decompressed qcow2 as the VM disk + set boot order
+  # TODO: onboard / restore-from-backup is a MANUAL step (see runbook)
