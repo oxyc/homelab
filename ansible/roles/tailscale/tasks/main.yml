@@ -15,12 +15,18 @@
     - net.ipv6.conf.all.forwarding
   when: ts_advertise_routes | length > 0
 
-- name: Bring up Tailscale (idempotent — re-applies flags)
+- name: Check whether Tailscale is already connected
+  ansible.builtin.command: tailscale status
+  register: ts_status
+  changed_when: false
+  failed_when: false
+
+- name: Join Tailscale (only when not already connected, so a single-use key is safe)
   ansible.builtin.command:
     cmd: >-
       tailscale up --authkey={{ ts_authkey }} --hostname={{ ts_hostname }}
       {{ '--ssh' if ts_ssh else '' }}
       {{ '--advertise-routes=' + ts_advertise_routes if ts_advertise_routes | length > 0 else '' }}
-  register: ts_up
-  changed_when: "'Success' in ts_up.stderr or ts_up.rc == 0"
+  when: ts_status.rc != 0
+  changed_when: true
   no_log: true                # contains the auth key
