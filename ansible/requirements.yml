@@ -1,5 +1,6 @@
 collections:
-  - name: community.general      # proxmox_kvm, proxmox (LXC) modules
-  - name: community.docker       # docker_compose_v2
-  - name: ansible.posix          # mounts, sysctl
+  - name: community.proxmox       # proxmox (LXC) + proxmox_kvm (VM) — the new home
+  - name: community.general       # filesystem, modprobe, apt_repository, etc.
+  - name: community.docker        # docker_compose_v2
+  - name: ansible.posix           # mounts, sysctl
 # install:  ansible-galaxy collection install -r requirements.yml

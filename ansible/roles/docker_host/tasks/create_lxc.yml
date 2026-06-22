@@ -1,6 +1,6 @@
 # Create the privileged LXC + install Docker. Needs a real Proxmox host.
 - name: Create privileged Docker LXC
-  community.general.proxmox:
+  community.proxmox.proxmox:
     vmid: "{{ docker_ctid }}"
     node: "{{ ansible_hostname }}"
     hostname: docker
@@ -22,7 +22,7 @@
       lxc.mount.entry: /dev/dri dev/dri none bind,optional,create=dir
 
 - name: Ensure LXC running
-  community.general.proxmox:
+  community.proxmox.proxmox:
     vmid: "{{ docker_ctid }}"
     state: started
 
