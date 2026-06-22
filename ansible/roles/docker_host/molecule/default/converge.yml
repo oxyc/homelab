@@ -1,0 +1,6 @@
+- name: Converge
+  hosts: all
+  tasks:
+    - name: Apply docker_host (stack-deploy half only; create_lxc skipped)
+      ansible.builtin.include_role:
+        name: docker_host

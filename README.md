@@ -46,14 +46,17 @@ you don't have): `make hooks`. The same checks run in GitHub Actions on every pu
 
 ## HomeKit (off by default)
 
-Scrypted is built in but **disabled** behind a compose profile, so the live stack is
-Frigate + Caddy (+ HA in its VM). Turn HomeKit/HKSV on later with no config changes:
+Scrypted is built in but **disabled**, so the live stack is Frigate + Caddy (+ HA in
+its VM). Test that first. Turning HomeKit on later is a one-line toggle — no config rework:
 
-```bash
-docker compose --profile homekit up -d      # or: make homekit
-```
-Then add the cameras in Scrypted and pair to HomeKit (manual). The go2rtc restreams
-Scrypted consumes already exist in `frigate/config.yml`.
+- **Ansible:** set `enable_homekit: true` in `ansible/group_vars/all.yml`, then `make deploy`.
+- **Compose directly:** `docker compose --profile homekit up -d` (or `make homekit`).
+
+That brings up Scrypted with iGPU access. The only remaining work is the **manual**
+Scrypted UI setup + HomeKit pairing (not automatable). The go2rtc restreams Scrypted
+consumes already exist in `frigate/config.yml`.
+
+Verify the toggle anytime: `make test` (proves Scrypted is off by default, on with the profile).
 
 ## Notes
 

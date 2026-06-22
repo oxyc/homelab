@@ -1,0 +1,46 @@
+# Deliver the compose stack and bring it up. The `homekit` profile (Scrypted)
+# is included only when enable_homekit=true — the one-line toggle.
+- name: Compute active compose profiles
+  ansible.builtin.set_fact:
+    compose_profiles: "{{ ['homekit'] if enable_homekit | bool else [] }}"
+
+- name: Ensure stack dir
+  ansible.builtin.file:
+    path: "{{ homelab_dir }}"
+    state: directory
+    mode: "0750"
+
+- name: Sync compose files into the LXC
+  ansible.builtin.copy:
+    src: "{{ compose_src }}/"
+    dest: "{{ homelab_dir }}/"
+    mode: "0640"
+
+# Real run: expect docker/.env (populated from Bitwarden) on the controller.
+# Molecule: synthesize one from .env.example just so files validate.
+- name: Provide .env (real run — fail loudly if missing)
+  ansible.builtin.copy:
+    src: "{{ compose_src }}/.env"
+    dest: "{{ homelab_dir }}/.env"
+    mode: "0600"
+  when: not molecule_test
+
+- name: Provide dummy .env (molecule only)
+  ansible.builtin.copy:
+    src: "{{ compose_src }}/../.env.example"
+    dest: "{{ homelab_dir }}/.env"
+    mode: "0600"
+  when: molecule_test
+
+- name: Record active profiles (debug + test marker)
+  ansible.builtin.copy:
+    content: "{{ compose_profiles | join(',') }}\n"
+    dest: "{{ homelab_dir }}/.deployed_profiles"
+    mode: "0640"
+
+- name: Bring up the stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ homelab_dir }}"
+    profiles: "{{ compose_profiles }}"
+    state: present
+  when: not molecule_test

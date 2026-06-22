@@ -1,0 +1,26 @@
+# Run:  cd ansible/roles/docker_host && molecule test
+# Deps: pip install "molecule-plugins[docker]" ansible-lint
+# Tests the stack-deploy half (file delivery + enable_homekit toggle + idempotence).
+# The LXC-create half needs a real Proxmox API and is skipped via molecule_test.
+dependency:
+  name: galaxy
+driver:
+  name: docker
+platforms:
+  - name: docker_host-instance
+    image: geerlingguy/docker-debian12-ansible:latest
+    pre_build_image: true
+    command: /usr/sbin/init
+    cgroupns_mode: host
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    privileged: true
+provisioner:
+  name: ansible
+  inventory:
+    host_vars:
+      docker_host-instance:
+        molecule_test: true
+        enable_homekit: true        # verify Scrypted profile is selected when on
+verifier:
+  name: ansible

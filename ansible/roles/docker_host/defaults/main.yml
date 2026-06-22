@@ -1,0 +1,5 @@
+# docker_host defaults
+enable_homekit: false                       # the toggle: true => deploy Scrypted too
+homelab_dir: /opt/homelab                   # where the stack lives inside the LXC
+compose_src: "{{ role_path }}/../../../docker"   # repo docker/ dir (real + molecule)
+molecule_test: false                        # set true by the molecule scenario

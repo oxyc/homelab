@@ -7,6 +7,7 @@ docker/.env
 
 # ansible
 ansible/inventory.yml
+ansible/group_vars/all.yml
 *.retry
 .vault_pass
 

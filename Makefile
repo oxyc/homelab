@@ -18,10 +18,19 @@ compose-config: ## Validate docker compose (needs docker/.env)
 	cd docker && docker compose config -q && echo "compose OK"
 	cd docker && docker compose --profile homekit config -q && echo "compose (homekit) OK"
 
-validate: lint compose-config  ## All static checks
+test:           ## Prove the HomeKit toggle (docker only, no ansible)
+	./scripts/test-toggle.sh
+
+molecule:       ## Run the docker_host role molecule test (needs molecule[docker])
+	cd ansible/roles/docker_host && molecule test
+
+validate: lint compose-config test  ## All static checks
 
 check:          ## Ansible dry-run against inventory.yml
 	cd ansible && ansible-playbook site.yml --check --diff
+
+deploy:         ## Apply the docker stack (honors enable_homekit)
+	cd ansible && ansible-playbook site.yml --tags docker
 
 up:             ## Start the default stack (frigate + caddy)
 	cd docker && docker compose up -d

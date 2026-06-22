@@ -1,32 +1,8 @@
-# Privileged LXC running the Docker Compose stack, sharing the host iGPU.
-- name: Create privileged Docker LXC
-  community.general.proxmox:
-    vmid: "{{ docker_ctid }}"
-    node: "{{ ansible_hostname }}"
-    hostname: docker
-    ostemplate: "local:vztmpl/debian-12-standard_amd64.tar.zst"
-    cores: 4
-    memory: 4096
-    unprivileged: false                 # needed for /dev/dri passthrough
-    features: "nesting=1"
-    netif: '{"net0":"name=eth0,bridge=vmbr0,ip=dhcp"}'
-    state: present
-  # TODO: lxc.cgroup2.devices.allow + lxc.mount.entry for /dev/dri in the CT config
+# docker_host: create the LXC (real runs only) then deploy the compose stack.
+# The stack-deploy half is what the molecule scenario exercises.
+- name: Create + prepare the Docker LXC
+  ansible.builtin.import_tasks: create_lxc.yml
+  when: not molecule_test            # needs a real Proxmox API; skipped under molecule
 
-- name: Install Docker in the LXC
-  ansible.builtin.shell: curl -fsSL https://get.docker.com | sh
-  args: { creates: /usr/bin/docker }
-  delegate_to: "{{ docker_lxc_ip }}"
-
-- name: Sync the docker/ stack into the LXC
-  ansible.posix.synchronize:
-    src: "{{ compose_src }}/"
-    dest: /opt/homelab/
-  delegate_to: "{{ docker_lxc_ip }}"
-  # NOTE: docker/.env is gitignored — deliver it separately (bw get notes homelab-env)
-
-- name: Bring up the stack
-  community.docker.docker_compose_v2:
-    project_src: /opt/homelab
-    state: present
-  delegate_to: "{{ docker_lxc_ip }}"
+- name: Deploy the compose stack
+  ansible.builtin.import_tasks: deploy_stack.yml
