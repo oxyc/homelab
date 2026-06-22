@@ -24,6 +24,9 @@ test:           ## Prove the HomeKit toggle (docker only, no ansible)
 preflight:      ## Full local rehearsal (lint + syntax + compose + caddy + toggle)
 	./scripts/preflight.sh
 
+check-config:   ## Scan your filled .env/group_vars/inventory for leftover placeholders
+	./scripts/check-placeholders.sh
+
 molecule:       ## Run the docker_host role molecule test (needs molecule[docker])
 	cd ansible/roles/docker_host && molecule test
 
