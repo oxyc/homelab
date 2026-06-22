@@ -2,7 +2,7 @@
 # Native pre-commit hook (no framework needed). Install:  make hooks
 # Skips any tool that isn't installed; the GitHub Actions CI runs the full set.
 set -uo pipefail
-root="$(git rev-parse --show-toplevel)"; cd "$root"
+root="$(git rev-parse --show-toplevel)"; cd "$root" || exit 1
 fail=0
 echo "▶ pre-commit checks"
 

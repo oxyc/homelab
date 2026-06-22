@@ -1,0 +1,9 @@
+# Keep the default rules, plus allowlist known-safe dummy values used in tests/CI.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Fake 40-char token passed to `caddy validate` in scripts/CI (not a secret)"
+regexes = [
+  '''0123456789abcdef0123456789abcdef01234567''',
+]

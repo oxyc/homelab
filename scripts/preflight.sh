@@ -2,7 +2,7 @@
 # One-shot local validation before touching hardware. Needs docker; no local installs.
 # Mirrors the GitHub Actions CI plus caddy + the toggle test.
 set -uo pipefail
-cd "$(git rev-parse --show-toplevel)"
+cd "$(git rev-parse --show-toplevel)" || exit 1
 fail=0
 
 echo "▶ yamllint + ansible-lint + ansible syntax-check"
@@ -33,6 +33,14 @@ docker build -q -t homelab-caddy:2 docker/caddy >/dev/null 2>&1 \
 
 echo "▶ homekit toggle"
 ./scripts/test-toggle.sh >/dev/null 2>&1 && echo "  ✓ toggle" || fail=1
+
+echo "▶ gitleaks (secret scan, full history)"
+docker run --rm -v "$PWD":/repo zricethezav/gitleaks:latest detect --source=/repo --no-banner >/dev/null 2>&1 \
+  && echo "  ✓ gitleaks" || fail=1
+
+echo "▶ shellcheck"
+docker run --rm -v "$PWD":/mnt koalaman/shellcheck:stable scripts/*.sh .githooks/pre-commit >/dev/null 2>&1 \
+  && echo "  ✓ shellcheck" || fail=1
 
 echo
 [ "$fail" = 0 ] && echo "✅ preflight passed" || echo "❌ preflight failed"

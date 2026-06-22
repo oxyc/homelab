@@ -29,3 +29,14 @@ jobs:
           cd docker
           docker compose config -q && echo "default OK"
           docker compose --profile homekit config -q && echo "homekit OK"
+
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # gitleaks scans full history
+      - name: gitleaks (secret scan)
+        run: docker run --rm -v "$PWD":/repo zricethezav/gitleaks:latest detect --source=/repo --no-banner
+      - name: shellcheck
+        run: shellcheck scripts/*.sh .githooks/pre-commit

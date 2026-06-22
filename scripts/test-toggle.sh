@@ -4,7 +4,7 @@
 #   --profile homekit => frigate + caddy + scrypted
 # Runs anywhere with docker; no ansible needed.
 set -euo pipefail
-cd "$(git rev-parse --show-toplevel)/docker"
+cd "$(git rev-parse --show-toplevel)/docker" || exit 1
 tmp=0; [ -f .env ] || { cp ../.env.example .env; tmp=1; }
 cleanup() { [ "$tmp" = 1 ] && rm -f .env; }
 trap cleanup EXIT
