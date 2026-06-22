@@ -6,10 +6,13 @@
 [global]
 keyboard = "en-us"
 country = "uy"
-fqdn = "pve.home"
-mailto = "you@example.com"
+fqdn = "pve.h.oxy.fi"
+mailto = "you@oxy.fi"
 timezone = "America/Montevideo"
-root_password = "CHANGE_ME"          # or root_password_hashed
+# Use a HASHED password ($6$… — generate per docs/runbook). The SAME plaintext also goes in
+# docker/.env as PVE_PASSWORD (for the Ansible PVE-API auth). Set ONE of the two below:
+# root_password = "CHANGE_ME"
+root_password_hashed = "CHANGE_ME"
 
 [network]
 source = "from-dhcp"
