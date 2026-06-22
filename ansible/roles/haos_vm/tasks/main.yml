@@ -1,10 +1,16 @@
-# Create the Home Assistant OS VM. HA itself is "provisioned" by restoring its
-# backup from B2 (see restic_backup) — Ansible only builds the VM shell.
-- name: Download latest HAOS qcow2
+# Build the Home Assistant OS VM. HA itself is "provisioned" by restoring its backup
+# (manual onboarding step). This role creates the VM shell + imports the HAOS disk.
+- name: Download HAOS image
   ansible.builtin.get_url:
-    url: "{{ haos_image_url }}"          # set in inventory; pin a version
-    dest: /var/lib/vz/template/haos.qcow2.xz
+    url: "{{ haos_image_url }}"
+    dest: "{{ haos_qcow2 }}.xz"
     mode: "0644"
+
+- name: Decompress HAOS image
+  ansible.builtin.command: "unxz --keep --force {{ haos_qcow2 }}.xz"
+  args:
+    creates: "{{ haos_qcow2 }}"
+  changed_when: true
 
 - name: Create HAOS VM (UEFI/q35, 2 vCPU, 2GB)
   community.general.proxmox_kvm:
@@ -15,8 +21,29 @@
     memory: 2048
     bios: ovmf
     machine: q35
-    net: { net0: "virtio,bridge=vmbr0" }
     scsihw: virtio-scsi-single
+    net:
+      net0: "virtio,bridge=vmbr0"
+    agent: 1
+    onboot: true
     state: present
-  # TODO: import the decompressed qcow2 as the VM disk + set boot order
-  # TODO: onboard / restore-from-backup is a MANUAL step (see runbook)
+
+- name: Read current VM config
+  ansible.builtin.command: "qm config {{ haos_vmid }}"
+  register: haos_cfg
+  changed_when: false
+
+- name: Import HAOS disk (only if not already attached)
+  ansible.builtin.command: "qm importdisk {{ haos_vmid }} {{ haos_qcow2 }} {{ vm_storage }}"
+  when: "'scsi0' not in haos_cfg.stdout"
+  changed_when: true
+
+- name: Attach disk + EFI + boot order (only if not configured)
+  ansible.builtin.command: >-
+    qm set {{ haos_vmid }}
+    --scsi0 {{ vm_storage }}:vm-{{ haos_vmid }}-disk-0
+    --efidisk0 {{ vm_storage }}:1,efitype=4m,pre-enrolled-keys=0
+    --boot order=scsi0
+  when: "'scsi0' not in haos_cfg.stdout"
+  changed_when: true
+# Onboarding / restore-from-backup is a MANUAL step (see docs/runbook.md).

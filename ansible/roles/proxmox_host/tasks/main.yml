@@ -19,10 +19,30 @@
     opts: defaults,noatime
     state: mounted
 
-- name: Register NVR as Proxmox directory storage
-  ansible.builtin.command: "pvesm add dir nvr --path {{ nvr_mount }} --content backup,images,rootdir"
-  args:
-    creates: /etc/pve/storage.cfg.nvr.done   # guard; replace with a proper check
+- name: Read current Proxmox storage
+  ansible.builtin.command: pvesm status
+  register: pvesm
+  changed_when: false
 
-# TODO: vmbrX bridge + VLAN-aware config for the camera VLAN
-# TODO: ensure render group + /dev/dri perms so the LXC can use QuickSync
+- name: Register NVR as Proxmox directory storage
+  ansible.builtin.command: >-
+    pvesm add dir nvr --path {{ nvr_mount }} --content backup,images,rootdir
+  when: "'nvr' not in pvesm.stdout"
+  changed_when: true
+
+# --- iGPU (QuickSync) for the Docker LXC ---
+- name: Ensure i915 module is loaded
+  community.general.modprobe:
+    name: i915
+    state: present
+
+- name: Verify the render node exists (QuickSync available to pass into the LXC)
+  ansible.builtin.stat:
+    path: /dev/dri/renderD128
+  register: dri
+  failed_when: not dri.stat.exists
+
+# --- Networking note (no host VLAN config needed) ---
+# Cameras live on a separate VLAN handled by Omada; the host + guests sit on the mgmt
+# LAN (vmbr0), and the Omada gateway routes mgmt->camera per ACL. So no VLAN-aware
+# bridge or tagging is required on Proxmox — segmentation is entirely on Omada.

@@ -1,0 +1,5 @@
+# haos_vm defaults
+vm_storage: local-lvm                       # default PVE thin pool on the 512GB SSD (ext4 install)
+haos_image_dir: /var/lib/vz/template
+haos_qcow2: "{{ haos_image_dir }}/haos.qcow2"
+# haos_image_url + haos_vmid come from group_vars / inventory
