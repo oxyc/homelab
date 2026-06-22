@@ -17,18 +17,36 @@ docker/    # compose.yml (frigate + scrypted + caddy, shared /dev/dri) + configs
 proxmox/   # optional unattended install answer file
 ```
 
+## Configuration
+
+Every file with real values has a committed `*.example` template and a **gitignored** real
+file you create from it. Fill them in, then `make check-config` verifies nothing's missing or
+left as a placeholder — and `make deploy` runs that check first, so a half-configured setup
+won't deploy.
+
+| Copy this template | → to (gitignored) | What goes in it |
+|--------------------|-------------------|-----------------|
+| `docker/.env.example` | `docker/.env` | secrets + IPs — pull from your password manager: `bw get notes homelab-env > docker/.env` |
+| `ansible/group_vars/all.example.yml` | `ansible/group_vars/all.yml` | mostly defaults; set `haos_ip` to your HA VM |
+| `ansible/inventory.example.yml` | `ansible/inventory.yml` | Proxmox host IP, LXC IP + gateway |
+| `tailscale/acl.hujson.example` | `tailscale/acl.hujson` | your tailnet login + LAN CIDR (then paste into the Tailscale console) |
+| `proxmox/answer.toml.example` | `proxmox/answer.toml` | *(optional)* unattended install: hashed root pw + email |
+
+- Secrets never live in the Ansible files — `ts_authkey` / `pve_api_password` are `env` lookups
+  into `docker/.env`, so run `set -a; . docker/.env; set +a` before deploying.
+- Optional values you aren't using yet (e.g. `TUNNEL_TOKEN`) — **comment them out**;
+  `check-config` skips commented lines.
+- Validate anytime: **`make check-config`**.
+
 ## Usage
 
 ```bash
-# secrets (from Bitwarden note `homelab-env`)
-bw get notes homelab-env > docker/.env
-
-# ansible
+set -a; . docker/.env; set +a               # export secrets for Ansible's env lookups
+make check-config                           # verify config is complete
 cd ansible
-cp inventory.example.yml inventory.yml      # fill in
 ansible-galaxy collection install -r requirements.yml
 ansible-playbook site.yml --check --diff    # dry run
-ansible-playbook site.yml --tags host       # then: haos, docker, backup
+ansible-playbook site.yml --tags host       # then: haos, docker, backup  (or `make deploy`)
 ```
 
 App stack alone (e.g. to test on a laptop):

@@ -37,7 +37,8 @@ fi
 echo "▶ no leftover placeholders"
 for f in docker/.env ansible/group_vars/all.yml ansible/inventory.yml; do
   [ -f "$f" ] || continue
-  grep -HnEi "$ph" "$f" && fail=1
+  # skip fully-commented lines (e.g. a B2 key kept as a fallback)
+  if grep -HnEi "$ph" "$f" | grep -vE ':[0-9]+:[[:space:]]*#'; then fail=1; fi
 done
 
 echo "▶ value sanity"
