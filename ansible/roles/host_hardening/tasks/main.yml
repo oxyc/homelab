@@ -57,3 +57,24 @@
 # fail2ban intentionally omitted: SSH is not internet-exposed (Tailscale-only, no port-forward),
 # so there is no public brute-force surface for it to protect.
 # Optional further hardening (manual/UI): Proxmox web-UI 2FA (TOTP), the pve-firewall.
+
+# --- stability / self-maintenance ---
+- name: Cap journald disk usage (logs can't fill the disk)
+  ansible.builtin.copy:
+    dest: /etc/systemd/journald.conf.d/00-size.conf
+    content: |
+      [Journal]
+      SystemMaxUse=500M
+    mode: "0644"
+  notify: Restart journald
+
+- name: Enable periodic fstrim (SSD/NVMe longevity)
+  ansible.builtin.systemd:
+    name: fstrim.timer
+    enabled: true
+    state: started
+
+- name: Install smartmontools (disk/NVMe health monitoring)
+  ansible.builtin.apt:
+    name: smartmontools
+    state: present
