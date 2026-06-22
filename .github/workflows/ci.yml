@@ -1,0 +1,30 @@
+name: ci
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install yamllint ansible-lint ansible
+      - name: yamllint
+        run: yamllint .
+      - name: ansible collections
+        run: cd ansible && ansible-galaxy collection install -r requirements.yml
+      - name: ansible-lint
+        run: cd ansible && ansible-lint
+
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: compose config (default + homekit)
+        run: |
+          cp .env.example docker/.env
+          cd docker
+          docker compose config -q && echo "default OK"
+          docker compose --profile homekit config -q && echo "homekit OK"

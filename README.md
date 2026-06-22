@@ -35,12 +35,27 @@ App stack alone (e.g. to test on a laptop):
 
 ```bash
 cd docker && cp ../.env.example .env        # fill in
-docker compose up
+docker compose up                           # frigate + caddy (HomeKit OFF by default)
 ```
+
+Common tasks via `make` (run `make help`): `validate`, `up`, `homekit`, `check`, `down`.
+
+## HomeKit (off by default)
+
+Scrypted is built in but **disabled** behind a compose profile, so the live stack is
+Frigate + Caddy (+ HA in its VM). Turn HomeKit/HKSV on later with no config changes:
+
+```bash
+docker compose --profile homekit up -d      # or: make homekit
+```
+Then add the cameras in Scrypted and pair to HomeKit (manual). The go2rtc restreams
+Scrypted consumes already exist in `frigate/config.yml`.
 
 ## Notes
 
 - ext4 (not ZFS); 16GB RAM is enough for this stack.
 - Docker-in-one-LXC shares the iGPU (QuickSync) across Frigate + Scrypted.
+- CX820 main is H.265 (recorded raw); only the HomeKit path transcodes, on the iGPU.
+- Doorbell is the **Reolink PoE Video Doorbell** (2K, 4:3) — keep its main H.264 if possible (HomeKit-friendly, no transcode).
 - Scrypted camera setup and HomeKit pairing are manual (not automated).
 - Backups: `restic` → Backblaze B2 (HA state); Proxmox `vzdump` → NVMe (local). Footage and Scrypted pairings are not backed up.

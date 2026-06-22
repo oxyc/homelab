@@ -1,5 +1,8 @@
 # Runs inside one privileged Docker LXC with /dev/dri bound in (shared QuickSync).
-# Secrets/IPs come from ./.env (gitignored). Not committed: .env.
+# Secrets/IPs come from ./.env (gitignored).
+#
+# Default `docker compose up`  => frigate + caddy (+ HA lives in its own VM).
+# HomeKit later                => `docker compose --profile homekit up -d`  (adds scrypted)
 name: homelab
 
 services:
@@ -7,10 +10,9 @@ services:
     image: ghcr.io/blakeblackshear/frigate:stable
     container_name: frigate
     restart: unless-stopped
-    privileged: false
     shm_size: "256mb"          # 2 cameras; bump if you add more
     devices:
-      - /dev/dri:/dev/dri      # iGPU: vaapi decode for detect (record is copy, no decode)
+      - /dev/dri:/dev/dri      # iGPU: vaapi decode for detect (record is copy)
     env_file: .env
     volumes:
       - ./frigate/config.yml:/config/config.yml:ro
@@ -24,16 +26,6 @@ services:
       - "8555:8555/tcp"
       - "8555:8555/udp"
 
-  scrypted:
-    image: ghcr.io/koush/scrypted:latest
-    container_name: scrypted
-    restart: unless-stopped
-    network_mode: host         # HomeKit/HKSV need host mDNS on the LAN
-    devices:
-      - /dev/dri:/dev/dri      # iGPU: H.265 -> H.264 transcode for HomeKit/HKSV
-    volumes:
-      - scrypted_data:/server/volume   # <-- HomeKit pairings live here (NOT backed up by choice)
-
   caddy:
     image: caddy:2
     container_name: caddy
@@ -46,6 +38,18 @@ services:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+
+  # --- HomeKit / HKSV: DISABLED until you opt in (see profile note at top) ---
+  scrypted:
+    image: ghcr.io/koush/scrypted:latest
+    container_name: scrypted
+    restart: unless-stopped
+    profiles: ["homekit"]      # not started by a plain `docker compose up`
+    network_mode: host         # HomeKit/HKSV need host mDNS on the LAN
+    devices:
+      - /dev/dri:/dev/dri      # iGPU: H.265 -> H.264 transcode for HomeKit/HKSV
+    volumes:
+      - scrypted_data:/server/volume   # HomeKit pairings live here (not backed up by choice)
 
 volumes:
   frigate_data:
