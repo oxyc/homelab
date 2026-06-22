@@ -15,12 +15,14 @@
 
 - name: Init repo (idempotent — ignores 'already initialized')
   ansible.builtin.shell: set -a; . /etc/restic.env; restic snapshots >/dev/null 2>&1 || restic init
+  changed_when: false
   delegate_to: "{{ docker_lxc_ip }}"
 
 - name: Install backup systemd service + timer
   ansible.builtin.copy:
     dest: "/etc/systemd/system/{{ item.name }}"
     content: "{{ item.content }}"
+    mode: "0644"
   loop:
     - name: restic-backup.service
       content: |

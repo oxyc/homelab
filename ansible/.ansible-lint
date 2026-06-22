@@ -1,0 +1,7 @@
+---
+skip_list:
+  - command-instead-of-module    # curl|sh is the vendor-recommended docker/tailscale install
+  - risky-shell-pipe             # same vendor install one-liners
+  - var-naming[no-role-prefix]   # short ts_/compose_ vars are fine for this homelab
+warn_list:
+  - args[module]                 # proxmox api_host/user supplied at runtime via inventory
