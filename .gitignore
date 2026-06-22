@@ -11,6 +11,9 @@ ansible/group_vars/all.yml
 *.retry
 .vault_pass
 
+# proxmox unattended-install answer (has the hashed root pw)
+proxmox/answer.toml
+
 # docs / planning — kept local only
 docs/
 

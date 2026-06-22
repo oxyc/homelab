@@ -69,7 +69,9 @@ if [ -f proxmox/answer.toml ]; then
   for kv in 'root_password|root_password_hashed' mailto fqdn; do
     grep -qE "^[[:space:]]*($kv)" proxmox/answer.toml || bad "answer.toml missing: $kv"
   done
-  grep -qiE 'CHANGE_ME|changeme' proxmox/answer.toml && bad "answer.toml still has a placeholder"
+  if grep -vE '^[[:space:]]*#' proxmox/answer.toml | grep -qiE 'CHANGE_ME|changeme'; then
+    bad "answer.toml still has a placeholder (on a non-comment line)"
+  fi
 else
   echo "  • manual install (no answer.toml) — skip"
 fi
