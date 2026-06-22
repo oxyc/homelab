@@ -7,3 +7,8 @@
   ansible.builtin.service:
     name: systemd-journald
     state: restarted
+
+- name: Restart smartd
+  ansible.builtin.service:
+    name: smartd
+    state: restarted

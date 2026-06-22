@@ -73,6 +73,8 @@
         EnvironmentFile=/opt/homelab/.env
         ExecStart=/usr/bin/restic backup /backups/ha --tag ha
         ExecStartPost=/usr/bin/restic forget --keep-daily 7 --keep-weekly 4 --prune
+        # dead-man's switch: ping HA only if the backup+prune succeeded
+        ExecStartPost=/bin/sh -c 'curl -fsS -m10 -X POST http://$HAOS_IP:8123/api/webhook/homelab_backup_ok || true'
     - name: restic-backup.timer
       content: |
         [Timer]

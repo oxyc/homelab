@@ -1,0 +1,65 @@
+# Self-monitoring → your phone via the HA mobile app.
+# ONE place to set the target: script.homelab_notify below (change notify.notify to
+# notify.mobile_app_<your_phone>). External things (restic, smartd, Proxmox) POST to the
+# local-only webhooks; the dead-man's switch nags if backups go quiet.
+
+input_datetime:
+  last_backup_ok:
+    name: Last successful backup
+    has_date: true
+    has_time: true
+
+script:
+  homelab_notify:
+    alias: Homelab notify
+    mode: queued
+    fields:
+      message:
+        description: Notification text
+    sequence:
+      - service: notify.notify          # <-- CHANGE to notify.mobile_app_<your_phone>
+        data:
+          title: Homelab
+          message: "{{ message }}"
+
+automation:
+  # restic pings this on every successful backup
+  - alias: "Homelab: backup succeeded"
+    id: homelab_backup_ok
+    trigger:
+      - platform: webhook
+        webhook_id: homelab_backup_ok
+        allowed_methods: [POST]
+        local_only: true
+    action:
+      - service: input_datetime.set_datetime
+        target: {entity_id: input_datetime.last_backup_ok}
+        data: {timestamp: "{{ now().timestamp() }}"}
+
+  # generic alert channel: smartd / Proxmox / anything POSTs {"message": "..."}
+  - alias: "Homelab: alert"
+    id: homelab_alert
+    trigger:
+      - platform: webhook
+        webhook_id: homelab_alert
+        allowed_methods: [POST]
+        local_only: true
+    action:
+      - service: script.homelab_notify
+        data:
+          message: "{{ trigger.json.message | default('Homelab alert') }}"
+
+  # dead-man's switch: nag if no successful backup in >26h
+  - alias: "Homelab: backup overdue"
+    id: homelab_backup_overdue
+    trigger:
+      - platform: time_pattern
+        hours: "/1"
+    condition:
+      - condition: template
+        value_template: >
+          {{ as_timestamp(states('input_datetime.last_backup_ok'), 0) < (now().timestamp() - 93600) }}
+    action:
+      - service: script.homelab_notify
+        data:
+          message: "⚠️ No successful backup in over 26h"

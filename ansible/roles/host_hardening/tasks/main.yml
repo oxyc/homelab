@@ -78,3 +78,21 @@
   ansible.builtin.apt:
     name: smartmontools
     state: present
+
+- name: Disk-failure alert script (smartd -> HA webhook)
+  ansible.builtin.copy:
+    dest: /usr/local/bin/homelab-smartd-alert
+    mode: "0755"
+    content: |
+      #!/bin/sh
+      curl -fsS -m10 -X POST "http://{{ haos_ip }}:8123/api/webhook/homelab_alert" \
+        -H 'Content-Type: application/json' \
+        -d "{\"message\": \"SMART: $SMARTD_MESSAGE ($SMARTD_DEVICE)\"}" || true
+
+- name: Point smartd at the alert script
+  ansible.builtin.copy:
+    dest: /etc/smartd.conf
+    mode: "0644"
+    content: |
+      DEVICESCAN -a -o on -S on -n standby,q -m root -M exec /usr/local/bin/homelab-smartd-alert
+  notify: Restart smartd
