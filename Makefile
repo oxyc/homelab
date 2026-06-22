@@ -21,6 +21,9 @@ compose-config: ## Validate docker compose (needs docker/.env)
 test:           ## Prove the HomeKit toggle (docker only, no ansible)
 	./scripts/test-toggle.sh
 
+preflight:      ## Full local rehearsal (lint + syntax + compose + caddy + toggle)
+	./scripts/preflight.sh
+
 molecule:       ## Run the docker_host role molecule test (needs molecule[docker])
 	cd ansible/roles/docker_host && molecule test
 

@@ -19,3 +19,5 @@
       tags: [docker]
     - role: restic_backup      # restic -> B2 systemd timer (HA backups + optional secrets/vzdump)
       tags: [backup]
+    - role: reolink_cameras    # encoder/NTP config via the Reolink API (run --check first)
+      tags: [cameras]

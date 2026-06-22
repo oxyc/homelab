@@ -1,0 +1,87 @@
+# Per-camera: login -> snapshot current -> apply only if different -> NTP.
+- name: "Login to {{ cam.name }}"
+  ansible.builtin.uri:
+    url: "http://{{ cam.host }}/cgi-bin/api.cgi?cmd=Login"
+    method: POST
+    body_format: json
+    body:
+      - cmd: Login
+        param:
+          User:
+            userName: "{{ reolink_user }}"
+            password: "{{ reolink_pass }}"
+    return_content: true
+  register: rl_login
+  no_log: true
+
+- name: "Extract token for {{ cam.name }}"
+  ansible.builtin.set_fact:
+    rl_token: "{{ rl_login.json[0].value.Token.name }}"
+  no_log: true
+
+- name: "Get current encoder config for {{ cam.name }}"
+  ansible.builtin.uri:
+    url: "http://{{ cam.host }}/cgi-bin/api.cgi?cmd=GetEnc&token={{ rl_token }}"
+    method: POST
+    body_format: json
+    body:
+      - cmd: GetEnc
+        action: 1
+        param:
+          channel: 0
+    return_content: true
+  register: rl_enc
+
+- name: "Snapshot current config before any change for {{ cam.name }}"
+  ansible.builtin.copy:
+    content: "{{ rl_enc.json | to_nice_json }}"
+    dest: "{{ reolink_snapshot_dir }}/{{ cam.name }}-enc.json"
+    mode: "0644"
+  delegate_to: localhost
+
+- name: "Compute desired streams for {{ cam.name }}"
+  ansible.builtin.set_fact:
+    rl_main: "{{ rl_enc.json[0].value.Enc.mainStream | combine(cam.main | default({})) }}"
+    rl_sub: "{{ rl_enc.json[0].value.Enc.subStream | combine(cam.sub | default({})) }}"
+
+- name: "Preview change in check mode for {{ cam.name }}"
+  ansible.builtin.debug:
+    msg:
+      - "main: {{ rl_enc.json[0].value.Enc.mainStream }} -> {{ rl_main }}"
+      - "sub:  {{ rl_enc.json[0].value.Enc.subStream }} -> {{ rl_sub }}"
+  when: ansible_check_mode
+
+- name: "Apply encoder config (only if different) for {{ cam.name }}"
+  ansible.builtin.uri:
+    url: "http://{{ cam.host }}/cgi-bin/api.cgi?cmd=SetEnc&token={{ rl_token }}"
+    method: POST
+    body_format: json
+    body:
+      - cmd: SetEnc
+        param:
+          Enc:
+            channel: 0
+            audio: "{{ rl_enc.json[0].value.Enc.audio | default(1) }}"
+            mainStream: "{{ rl_main }}"
+            subStream: "{{ rl_sub }}"
+    return_content: true
+  when:
+    - not ansible_check_mode
+    - rl_main != rl_enc.json[0].value.Enc.mainStream or rl_sub != rl_enc.json[0].value.Enc.subStream
+
+- name: "Set NTP on {{ cam.name }}"
+  ansible.builtin.uri:
+    url: "http://{{ cam.host }}/cgi-bin/api.cgi?cmd=SetNtp&token={{ rl_token }}"
+    method: POST
+    body_format: json
+    body:
+      - cmd: SetNtp
+        param:
+          Ntp:
+            enable: 1
+            server: "{{ reolink_ntp }}"
+            port: 123
+            interval: 1440
+    return_content: true
+  changed_when: true
+  when: not ansible_check_mode

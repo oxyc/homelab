@@ -1,0 +1,15 @@
+# Configure each Reolink camera over its HTTP API. Run with --check first to preview.
+- name: Ensure snapshot dir exists
+  ansible.builtin.file:
+    path: "{{ reolink_snapshot_dir }}"
+    state: directory
+    mode: "0755"
+  delegate_to: localhost
+  run_once: true
+
+- name: Configure each camera
+  ansible.builtin.include_tasks: configure_camera.yml
+  loop: "{{ reolink_cameras }}"
+  loop_control:
+    loop_var: cam
+    label: "{{ cam.name }}"

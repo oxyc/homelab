@@ -1,0 +1,20 @@
+# Desired Reolink encoder settings, applied via the camera HTTP API.
+# Creds + IPs come from the same .env (env lookups) — export it before running.
+reolink_user: "{{ lookup('ansible.builtin.env', 'FRIGATE_CAM_USER') }}"
+reolink_pass: "{{ lookup('ansible.builtin.env', 'FRIGATE_CAM_PASS') }}"
+reolink_snapshot_dir: "{{ playbook_dir }}/../.reolink-snapshots"
+reolink_ntp: pool.ntp.org
+
+# Per-camera overrides merged onto the camera's current config (only set what you want).
+# NOTE: verify field names against your firmware; codec change (vType) may be ignored if
+# the model locks it (CX820 main is 4K H.265 only). GOP/I-frame interval is generally NOT
+# exposed by the Reolink API — for HKSV it's handled by Scrypted's transcode output instead.
+reolink_cameras:
+  - name: front
+    host: "{{ lookup('ansible.builtin.env', 'FRIGATE_CX820_IP') }}"
+    main: {frameRate: 15}          # 4K H.265 locked; just tune fps/bitrate
+    sub: {frameRate: 7}
+  - name: doorbell
+    host: "{{ lookup('ansible.builtin.env', 'FRIGATE_DOORBELL_IP') }}"
+    main: {vType: h264, frameRate: 20}   # prefer H.264 so HomeKit needs no transcode
+    sub: {frameRate: 7}

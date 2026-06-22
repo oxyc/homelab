@@ -14,6 +14,9 @@ ansible/group_vars/all.yml
 # docs / planning — kept local only
 docs/
 
+# reolink config snapshots (local)
+.reolink-snapshots/
+
 # local / editor
 .DS_Store
 *.swp
