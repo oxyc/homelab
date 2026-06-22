@@ -1,6 +1,5 @@
-# Copy to all.yml (gitignored) and adjust. The HomeKit toggle lives here.
-
-# false => stack is Frigate + Caddy only (test this first).
-# true  => also deploys Scrypted; then do the manual Scrypted/HomeKit pairing.
-# Flip and re-run:  ansible-playbook site.yml --tags docker   (or: make deploy)
-enable_homekit: false
+# Copy to all.yml (gitignored).
+# HomeKit/Scrypted is just a compose profile. Empty = Frigate + Caddy only (test first).
+# Add 'homekit' and re-run (make deploy) to also bring up Scrypted.
+compose_profiles: []
+# compose_profiles: [homekit]
