@@ -3,6 +3,8 @@
 #   ansible-playbook site.yml --tags haos
 #   ansible-playbook site.yml --tags docker
 #   ansible-playbook site.yml --tags backup
+# NOTE: backup/cameras reach the LXC via an add_host created in the `docker` phase, so include
+#   --tags docker when running them (or just run the full playbook). They won't run standalone.
 # Always dry-run first on the real box:  --check --diff
 
 - name: Provision homelab

@@ -10,7 +10,9 @@
     memory: 4096
     unprivileged: false                 # needed for /dev/dri passthrough
     features: "nesting=1"
-    netif: '{"net0":"name=eth0,bridge=vmbr0,ip=dhcp"}'
+    # static IP (matches the ip-plan) so delegation hits a known address, no DHCP reservation race
+    netif: '{"net0":"name=eth0,bridge=vmbr0,ip={{ docker_lxc_ip }}/24,gw={{ docker_lxc_gw }}"}'
+    nameserver: "{{ docker_lxc_gw }}"
     pubkey: "{{ lookup('ansible.builtin.url', 'https://github.com/' + admin_github_user + '.keys', split_lines=false) }}"
     state: present
 
@@ -28,10 +30,14 @@
     vmid: "{{ docker_ctid }}"
     state: started
 
-- name: Bootstrap python + ssh inside the LXC (via pct — no SSH needed yet)
+- name: Bootstrap python + ssh inside the LXC (retry — container net may not be up instantly)
   ansible.builtin.command: >-
     pct exec {{ docker_ctid }} -- sh -c
-    'apt-get update -qq && apt-get install -y -qq python3 curl openssh-server && systemctl enable --now ssh'
+    'apt-get update -qq && apt-get install -y -qq python3 curl openssh-server sudo && systemctl enable --now ssh'
+  register: lxc_boot
+  until: lxc_boot.rc == 0
+  retries: 10
+  delay: 6
   changed_when: true
 
 - name: Register the LXC as a delegation target (root + key)

@@ -13,7 +13,8 @@ all:
     # guests
     haos_vmid: 100
     docker_ctid: 110                   # privileged LXC for the Docker stack
-    docker_lxc_ip: 192.168.x.x
+    docker_lxc_ip: 192.168.x.x         # static IP given to the LXC (VLAN10, e.g. .10.10)
+    docker_lxc_gw: 192.168.x.1         # VLAN10 gateway (+ DNS) for the LXC
 
     # docker stack source (this repo, synced to the LXC)
     compose_src: "../docker"
