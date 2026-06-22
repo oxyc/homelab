@@ -17,10 +17,13 @@ docker run --rm -v "$PWD":/w -w /w python:3.12-slim sh -lc '
 ' && echo "  ✓ lint + syntax" || fail=1
 
 echo "▶ docker compose config (default + homekit)"
-( cd docker && cp ../.env.example .env \
-  && docker compose config -q \
-  && docker compose --profile homekit config -q \
-  && rm -f .env ) && echo "  ✓ compose" || fail=1
+# NEVER clobber a real docker/.env: only stage a temp one if none exists, and only
+# remove what we created.
+( cd docker || exit 1
+  tmp=0; [ -f .env ] || { cp ../.env.example .env; tmp=1; }
+  docker compose config -q && docker compose --profile homekit config -q; rc=$?
+  [ "$tmp" = 1 ] && rm -f .env
+  exit $rc ) && echo "  ✓ compose" || fail=1
 
 echo "▶ caddy validate (wildcard DNS-01)"
 docker build -q -t homelab-caddy:2 docker/caddy >/dev/null 2>&1 \

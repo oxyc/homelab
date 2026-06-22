@@ -1,12 +1,61 @@
-# restic -> Cloudflare R2 (S3). Client-side encrypted, systemd timer.
-# Backend-agnostic: reads RESTIC_REPOSITORY/RESTIC_PASSWORD + AWS_* creds straight from the
-# already-deployed /opt/homelab/.env (the one Bitwarden note). NOT Scrypted pairings.
-- name: Install restic
+# Backup pipeline:  HA --(SMB)--> /backups/ha on the LXC --(restic)--> Cloudflare R2.
+# Samba (not NFS) because smbd is userspace and works cleanly in a container.
+# All secrets come from the deployed /opt/homelab/.env (one Bitwarden note).
+- name: Install Samba + restic
   ansible.builtin.apt:
-    name: restic
+    name: [samba, restic]
     state: present
   delegate_to: "{{ docker_lxc_ip }}"
 
+# --- SMB share that HA targets as a network backup location ---
+- name: Create backup-share user
+  ansible.builtin.user:
+    name: habackup
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+  delegate_to: "{{ docker_lxc_ip }}"
+
+- name: Ensure backup dir
+  ansible.builtin.file:
+    path: /backups/ha
+    state: directory
+    owner: habackup
+    group: habackup
+    mode: "0750"
+  delegate_to: "{{ docker_lxc_ip }}"
+
+- name: Check if the SMB user already exists
+  ansible.builtin.command: pdbedit -L -u habackup
+  register: pdb
+  changed_when: false
+  failed_when: false
+  delegate_to: "{{ docker_lxc_ip }}"
+
+- name: Set SMB password (from SMB_PASSWORD env)
+  ansible.builtin.shell: printf '%s\n%s\n' "$SMB_PASSWORD" "$SMB_PASSWORD" | smbpasswd -s -a habackup
+  environment:
+    SMB_PASSWORD: "{{ lookup('ansible.builtin.env', 'SMB_PASSWORD') }}"
+  when: pdb.rc != 0
+  no_log: true
+  changed_when: true
+  delegate_to: "{{ docker_lxc_ip }}"
+
+- name: Configure the SMB share
+  ansible.builtin.blockinfile:
+    path: /etc/samba/smb.conf
+    marker: "# {mark} habackup"
+    block: |
+      [habackup]
+        path = /backups/ha
+        read only = no
+        valid users = habackup
+        create mask = 0660
+        directory mask = 0770
+  notify: Restart smbd
+  delegate_to: "{{ docker_lxc_ip }}"
+
+# --- restic -> R2 (reads RESTIC_*/AWS_* from /opt/homelab/.env) ---
 - name: Init repo (idempotent — ignores 'already initialized')
   ansible.builtin.shell: set -a; . /opt/homelab/.env; set +a; restic snapshots >/dev/null 2>&1 || restic init
   changed_when: false
@@ -32,5 +81,6 @@
         [Install]
         WantedBy=timers.target
   delegate_to: "{{ docker_lxc_ip }}"
-# TODO: ensure HA backups land in /backups/ha (HA Google-Drive-style add-on -> shared path,
-#       or sync the HAOS VM's /backup into the LXC before restic runs).
+# HA side (manual, one-time): Settings -> System -> Storage -> Add network storage (SMB):
+#   host = <docker_lxc_ip>, share = habackup, user/pass = habackup / SMB_PASSWORD,
+#   usage = Backups. Then set it as the backup location and schedule backups.
