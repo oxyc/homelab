@@ -35,8 +35,8 @@ validate: lint compose-config test  ## All static checks
 check:          ## Ansible dry-run against inventory.yml
 	cd ansible && ansible-playbook site.yml --check --diff
 
-deploy:         ## Apply the docker stack (honors enable_homekit)
-	cd ansible && ansible-playbook site.yml --tags docker
+deploy: check-config   ## Apply the stack (refuses to run until config is complete)
+	cd ansible && ansible-playbook site.yml
 
 up:             ## Start the default stack (frigate + caddy)
 	cd docker && docker compose up -d
