@@ -11,6 +11,8 @@
   roles:
     - role: proxmox_host       # repos, NVMe ext4 + mount, network bridges/VLAN, /dev/dri perms
       tags: [host]
+    - role: host_hardening     # admin user + sudo, SSH key, sshd hardening, auto security updates
+      tags: [host, hardening]
     - role: tailscale          # remote SSH from phone over the tailnet
       tags: [tailscale, remote]
     - role: haos_vm            # download + create HAOS VM (then restore HA backup manually)

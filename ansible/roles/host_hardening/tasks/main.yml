@@ -1,0 +1,59 @@
+# Proxmox host hardening. ORDER MATTERS: provision the admin user + SSH keys BEFORE
+# tightening sshd, so you never lock yourself out. (Tailscale SSH is a separate daemon and
+# stays available regardless — an extra safety net if sshd is ever misconfigured.)
+
+- name: Create admin user (sudo group)
+  ansible.builtin.user:
+    name: "{{ admin_user }}"
+    groups: sudo
+    append: true
+    shell: /bin/bash
+    create_home: true
+
+- name: Passwordless sudo for admin (homelab; the SSH key is the real gate)
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/10-{{ admin_user }}"
+    content: "{{ admin_user }} ALL=(ALL) NOPASSWD:ALL\n"
+    mode: "0440"
+    validate: "visudo -cf %s"
+
+- name: Authorize SSH key for admin and root
+  ansible.posix.authorized_key:
+    user: "{{ item }}"
+    key: "{{ admin_ssh_pubkey }}"
+  loop:
+    - "{{ admin_user }}"
+    - root
+
+- name: Harden sshd (key-only; root key-only)
+  ansible.builtin.copy:
+    dest: /etc/ssh/sshd_config.d/99-hardening.conf
+    content: |
+      PermitRootLogin prohibit-password
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      X11Forwarding no
+      MaxAuthTries 3
+    mode: "0644"
+  notify: Restart sshd
+
+- name: Validate the full sshd config (aborts before restart if broken)
+  ansible.builtin.command: sshd -t
+  changed_when: false
+
+- name: Install unattended-upgrades
+  ansible.builtin.apt:
+    name: unattended-upgrades
+    state: present
+
+- name: Enable automatic security updates (no auto-reboot of the hypervisor)
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+    mode: "0644"
+
+# fail2ban intentionally omitted: SSH is not internet-exposed (Tailscale-only, no port-forward),
+# so there is no public brute-force surface for it to protect.
+# Optional further hardening (manual/UI): Proxmox web-UI 2FA (TOTP), the pve-firewall.
