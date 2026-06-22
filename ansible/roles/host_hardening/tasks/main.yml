@@ -17,10 +17,10 @@
     mode: "0440"
     validate: "visudo -cf %s"
 
-- name: Authorize SSH key for admin and root
+- name: Authorize SSH keys from GitHub for admin and root
   ansible.posix.authorized_key:
     user: "{{ item }}"
-    key: "{{ admin_ssh_pubkey }}"
+    key: "https://github.com/{{ admin_github_user }}.keys"   # module fetches the URL
   loop:
     - "{{ admin_user }}"
     - root

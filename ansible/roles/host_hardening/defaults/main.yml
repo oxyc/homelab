@@ -1,3 +1,3 @@
 # host_hardening defaults
 admin_user: admin
-# admin_ssh_pubkey: set in group_vars/all.yml (your PUBLIC key — not a secret)
+admin_github_user: oxyc        # SSH keys pulled from https://github.com/<user>.keys

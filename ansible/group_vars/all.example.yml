@@ -14,7 +14,7 @@ ts_hostname: pve              # tailnet node name -> `ssh root@pve`, https://pve
 
 # Host hardening
 admin_user: oxyc
-admin_ssh_pubkey: "ssh-ed25519 AAAA...replace-with-your-public-key... you@laptop"  # PUBLIC key
+admin_github_user: oxyc        # SSH keys auto-pulled from https://github.com/<user>.keys
 # Advertise the home LAN so the phone reaches HA/Frigate/cameras through the host
 # (the single "way in"). Set to your real LAN CIDR; approve via tailscale/acl.hujson.
 ts_advertise_routes: "192.168.10.0/24"
