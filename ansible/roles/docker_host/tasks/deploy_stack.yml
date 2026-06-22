@@ -1,4 +1,4 @@
-# Deliver the compose stack and bring it up.
+# Deliver the compose stack and bring it up — on the LXC (delegate_to docker_lxc_ip).
 # The HomeKit toggle is just Docker Compose's own profiles feature: set
 # compose_profiles: [homekit] (in group_vars) to include Scrypted. No extra logic.
 - name: Ensure stack dir
@@ -6,18 +6,22 @@
     path: "{{ homelab_dir }}"
     state: directory
     mode: "0750"
+  delegate_to: "{{ docker_lxc_ip }}"
 
 - name: Sync compose files into the LXC
   ansible.builtin.copy:
     src: "{{ compose_src }}/"
     dest: "{{ homelab_dir }}/"
-    mode: "0640"
+    mode: "0644"            # files; dirs get +x via directory_mode (traversable)
+    directory_mode: "0755"
+  delegate_to: "{{ docker_lxc_ip }}"
 
-- name: Provide .env (from Bitwarden-populated docker/.env)
+- name: Provide .env (real = docker/.env; molecule = docker/.env.example)
   ansible.builtin.copy:
     src: "{{ compose_src }}/{{ '.env.example' if molecule_test else '.env' }}"
     dest: "{{ homelab_dir }}/.env"
     mode: "0600"
+  delegate_to: "{{ docker_lxc_ip }}"
 
 - name: Bring up the stack
   community.docker.docker_compose_v2:
@@ -25,3 +29,4 @@
     profiles: "{{ compose_profiles }}"
     state: present
   when: not molecule_test          # molecule image has no docker daemon
+  delegate_to: "{{ docker_lxc_ip }}"

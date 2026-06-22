@@ -20,7 +20,7 @@ fi
 
 # 3) docker compose validation, both profiles (optional)
 if docker compose version >/dev/null 2>&1; then
-  tmp=0; [ -f docker/.env ] || { cp .env.example docker/.env; tmp=1; }
+  tmp=0; [ -f docker/.env ] || { cp docker/.env.example docker/.env; tmp=1; }
   if (cd docker && docker compose config -q && docker compose --profile homekit config -q); then
     echo "  ✓ docker compose (default + homekit)"
   else

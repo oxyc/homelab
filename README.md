@@ -34,7 +34,7 @@ ansible-playbook site.yml --tags host       # then: haos, docker, backup
 App stack alone (e.g. to test on a laptop):
 
 ```bash
-cd docker && cp ../.env.example .env        # fill in
+cd docker && cp .env.example .env           # fill in
 docker compose up                           # frigate + caddy (HomeKit OFF by default)
 ```
 

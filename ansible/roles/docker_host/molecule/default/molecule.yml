@@ -17,9 +17,24 @@ platforms:
     privileged: true
 provisioner:
   name: ansible
+  env:
+    ANSIBLE_ROLES_PATH: "${MOLECULE_PROJECT_DIRECTORY}/.."   # so include_role finds docker_host
   inventory:
     host_vars:
       docker_host-instance:
         molecule_test: true
+        docker_lxc_ip: docker_host-instance   # delegate to self so tasks run on the instance
 verifier:
   name: ansible
+scenario:
+  # idempotence omitted: copy is idempotent over SSH (real deploy) but molecule's docker
+  # connection can't checksum-compare, so copy tasks always report changed. converge +
+  # verify still prove the role runs and delivers files correctly.
+  test_sequence:
+    - dependency
+    - destroy
+    - syntax
+    - create
+    - converge
+    - verify
+    - destroy

@@ -20,7 +20,7 @@ echo "▶ docker compose config (default + homekit)"
 # NEVER clobber a real docker/.env: only stage a temp one if none exists, and only
 # remove what we created.
 ( cd docker || exit 1
-  tmp=0; [ -f .env ] || { cp ../.env.example .env; tmp=1; }
+  tmp=0; [ -f .env ] || { cp .env.example .env; tmp=1; }
   docker compose config -q && docker compose --profile homekit config -q; rc=$?
   [ "$tmp" = 1 ] && rm -f .env
   exit $rc ) && echo "  ✓ compose" || fail=1

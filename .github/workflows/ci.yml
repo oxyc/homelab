@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: compose config (default + homekit)
         run: |
-          cp .env.example docker/.env
+          cp docker/.env.example docker/.env
           cd docker
           docker compose config -q && echo "default OK"
           docker compose --profile homekit config -q && echo "homekit OK"
