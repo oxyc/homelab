@@ -30,3 +30,38 @@
     state: present
   when: not molecule_test          # molecule image has no docker daemon
   delegate_to: "{{ docker_lxc_ip }}"
+
+# --- yt-dlp canary: extraction breaks when YouTube changes; catch it from OUR residential IP
+# (a cloud/CI runner gets YouTube's datacenter bot-block, so this MUST run on the box). Weekly
+# it extracts an evergreen video via the running trailer-service; a failure => bump YTDLP_VERSION.
+- name: Install the trailer-extraction canary (self-skips if trailers isn't running)
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ item.name }}"
+    content: "{{ item.content }}"
+    mode: "0644"
+  loop:
+    - name: trailer-canary.service
+      content: |
+        [Service]
+        EnvironmentFile={{ homelab_dir }}/.env
+        # No trailer-service container (trailers profile off) => skip quietly. Else a failed
+        # extraction of a known evergreen video (Big Buck Bunny) => yt-dlp/YouTube broke => alert.
+        ExecStart=/bin/sh -c 'docker exec trailer-service true 2>/dev/null || exit 0; docker exec trailer-service curl -fsS -m120 -o /dev/null http://localhost:8092/play/aqz-KE-bpKQ.mp4 || { curl -fsS -m10 -X POST http://$HAOS_IP:8123/api/webhook/homelab_alert -H "Content-Type: application/json" -d "{\"message\": \"Trailer canary FAILED - yt-dlp/YouTube likely broke; bump YTDLP_VERSION\"}"; exit 1; }'
+    - name: trailer-canary.timer
+      content: |
+        [Timer]
+        OnCalendar=weekly
+        Persistent=true
+        [Install]
+        WantedBy=timers.target
+  when: not molecule_test
+  delegate_to: "{{ docker_lxc_ip }}"
+
+- name: Enable the trailer-canary timer
+  ansible.builtin.systemd:
+    name: trailer-canary.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: not molecule_test
+  delegate_to: "{{ docker_lxc_ip }}"
