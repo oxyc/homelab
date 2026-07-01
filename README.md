@@ -115,6 +115,22 @@ are configured:
 | Frigate | `http://<SCRYPTED_HOST>:5000` | `https://frigate.<CADDY_LOCAL_DOMAIN>` |
 | Scrypted (homekit profile) | `https://<SCRYPTED_HOST>:10443` | `https://scrypted.<CADDY_LOCAL_DOMAIN>` |
 
+### Home Assistant on your phone
+
+1. Install the **Home Assistant** Companion app (iOS/Android) and log in with your HA account.
+2. **At home** (same LAN) the app auto-discovers HA, or enter the URL manually:
+   `https://ha.<CADDY_LOCAL_DOMAIN>` (real cert) or `http://<HAOS_IP>:8123`.
+3. **Away from home** — the box only exposes Tailscale, so put the phone on the tailnet:
+   - Install **Tailscale** and sign in (this phone is already a tailnet node).
+   - The Proxmox host advertises the `192.168.10.0/24` route (`ts_advertise_routes`), so with
+     Tailscale on, `http://<HAOS_IP>:8123` reaches HA directly — no Nabu Casa, nothing public.
+4. In the HA app, set **both** the home and remote URL to the **same** value so it just works
+   in either place. Most reliable over Tailscale is the IP (`http://<HAOS_IP>:8123`);
+   `https://ha.<domain>` also works if MagicDNS split-DNS maps `<CADDY_LOCAL_DOMAIN>` to the box.
+
+No-Tailscale alternatives: Nabu Casa Cloud (paid, one toggle) or a Cloudflare Tunnel + Access —
+but Tailscale is the zero-exposure option you already run.
+
 ## HomeKit (off by default)
 
 Scrypted is built in but **disabled** via a Docker Compose profile, so the live stack is

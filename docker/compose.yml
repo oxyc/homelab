@@ -69,18 +69,22 @@ services:
     volumes:
       - scrypted_data:/server/volume   # HomeKit pairings live here (not backed up by choice)
 
-  # --- Den trailer proxy: YouTube id -> App-Store-safe MP4 for inline tvOS playback ---
+  # --- Den trailers: addon (imdb->ytId) + yt-dlp/ffmpeg proxy (ytId->MP4) in one container ---
   # LAN-only by design: fronted by Caddy at https://trailers.${CADDY_LOCAL_DOMAIN}, never
-  # published or tunneled — the Apple TV must be on the same LAN. Needs internet (yt-dlp
-  # reaches YouTube), which the mgmt LAN has. No env_file: it only wants its own defaults,
-  # so we don't leak the secrets in .env into an internet-facing container.
-  # Image is built + pushed from github.com/oxyc/den-trailer-service (GHCR).
-  # Opt in: `docker compose --profile trailers up -d`.
+  # published or tunneled — the Apple TV must be on the same LAN. Needs internet (TMDB + yt-dlp
+  # reach the web), which the mgmt LAN has. We pass ONLY the two keys it needs (not env_file),
+  # so the rest of .env doesn't leak into an internet-facing container. Caddy forwards Host +
+  # X-Forwarded-Proto, so the addon builds correct https://trailers.<domain>/play/... URLs.
+  # Image built + pushed from github.com/oxyc/den-trailer-service (GHCR).
+  # Add https://trailers.<domain>/manifest.json to Den. Opt in: `--profile trailers up -d`.
   trailer-service:
     image: ghcr.io/oxyc/den-trailer-service:${TRAILER_SERVICE_VERSION:-latest}
     container_name: trailer-service
     restart: unless-stopped
     profiles: ["trailers"]
+    environment:
+      TMDB_KEY: ${TMDB_KEY}              # required for the addon (/meta lookups)
+      KINOCHECK_KEY: ${KINOCHECK_KEY:-}  # optional trailer-discovery fallback
     volumes:
       - trailer_cache:/cache
     # No published port: Caddy reverse-proxies it over the LAN (https, real cert → no ATS
