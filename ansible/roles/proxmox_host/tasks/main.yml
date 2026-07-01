@@ -1,9 +1,42 @@
 # Proxmox host base config. Idempotent.
-- name: Use no-subscription repo (remove enterprise)
-  ansible.builtin.apt_repository:
-    repo: "deb http://download.proxmox.com/debian/pve {{ ansible_distribution_release }} pve-no-subscription"
-    filename: pve-no-subscription
+# PVE 9 ships deb822 `.sources`; the enterprise pve/ceph repos 401 without a paid subscription
+# and break every apt run, so disable them and add pve-no-subscription (deb822).
+- name: Find enterprise Proxmox/Ceph repo files
+  ansible.builtin.find:
+    paths: /etc/apt/sources.list.d
+    patterns: ["pve-enterprise.sources", "ceph.sources"]
+  register: pve_enterprise_repos
+
+- name: Disable enterprise repos (no subscription)
+  ansible.builtin.lineinfile:
+    path: "{{ item.path }}"
+    line: "Enabled: false"
     state: present
+  loop: "{{ pve_enterprise_repos.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Remove any legacy no-subscription .list (superseded by the deb822 .sources)
+  ansible.builtin.file:
+    path: /etc/apt/sources.list.d/pve-no-subscription.list
+    state: absent
+
+- name: Add the pve-no-subscription repo (deb822)
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/pve-no-subscription.sources
+    mode: "0644"
+    content: |
+      Types: deb
+      URIs: http://download.proxmox.com/debian/pve
+      Suites: {{ ansible_distribution_release }}
+      Components: pve-no-subscription
+      Signed-By: /usr/share/keyrings/proxmox-archive-keyring.gpg
+  register: nosub_repo
+
+- name: Refresh apt cache after repo change
+  ansible.builtin.apt:
+    update_cache: true
+  when: nosub_repo is changed
 
 - name: Format NVR disk ext4
   community.general.filesystem:

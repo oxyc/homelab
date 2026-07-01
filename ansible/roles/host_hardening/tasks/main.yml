@@ -2,6 +2,11 @@
 # tightening sshd, so you never lock yourself out. (Tailscale SSH is a separate daemon and
 # stays available regardless — an extra safety net if sshd is ever misconfigured.)
 
+- name: Ensure sudo is installed (Proxmox/Debian base ships without it → visudo missing)
+  ansible.builtin.apt:
+    name: sudo
+    state: present
+
 - name: Create admin user (sudo group)
   ansible.builtin.user:
     name: "{{ admin_user }}"
@@ -59,6 +64,12 @@
 # Optional further hardening (manual/UI): Proxmox web-UI 2FA (TOTP), the pve-firewall.
 
 # --- stability / self-maintenance ---
+- name: Ensure the journald drop-in dir exists (not created by default)
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    mode: "0755"
+
 - name: Cap journald disk usage (logs can't fill the disk)
   ansible.builtin.copy:
     dest: /etc/systemd/journald.conf.d/00-size.conf

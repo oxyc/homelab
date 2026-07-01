@@ -62,6 +62,59 @@ Install the local pre-commit hook (validates compose + scans for secrets, skips 
 you don't have): `make hooks`. The same checks run in GitHub Actions on every push
 (public repo → free unlimited CI).
 
+## Access
+
+Real IPs live only in `docker/.env` (`PROXMOX_IP`, `HAOS_IP`, `SCRYPTED_HOST`) — the
+placeholders below stand in for them. `pve` is the Tailscale MagicDNS name (the host's
+`ts_hostname`), so it resolves from any device on the tailnet with no IP to remember.
+
+**Proxmox web UI**
+
+| From | URL | Login |
+|------|-----|-------|
+| LAN | `https://<PROXMOX_IP>:8006` | `root` (Linux PAM) |
+| Tailnet (MagicDNS) | `https://pve:8006` | `root` (Linux PAM) |
+| Via Caddy (if DNS set up) | `https://pve.<CADDY_LOCAL_DOMAIN>` | `root` |
+
+Self-signed cert → browser warning is expected (no subscription). Optional: enable web-UI
+TOTP 2FA under *Datacenter → Permissions → Two Factor*.
+
+**SSH** — key-only after hardening (`PasswordAuthentication no`, `PermitRootLogin
+prohibit-password`). Keys are pulled from `github.com/<admin_github_user>.keys` for both
+`oxyc` and `root`, so any device holding a matching private key gets in.
+
+```bash
+# LAN, direct
+ssh oxyc@<PROXMOX_IP>          # admin (passwordless sudo)
+ssh root@<PROXMOX_IP>          # root (key-only)
+
+# Over Tailscale (MagicDNS) — works from anywhere, no port-forward
+ssh oxyc@pve
+ssh root@pve
+```
+
+> Tailscale SSH: if the tailnet ACL has the admin→host rule set to `check` (the default in
+> `tailscale/acl.hujson.example`), the first `ssh …@pve` prints a
+> `login.tailscale.com/a/…` URL you must open once to authenticate. For non-interactive use
+> (Ansible over the tailnet) set that rule to `accept`, or run Ansible over the LAN IP instead.
+
+**Ansible** runs from your workstation over whichever address is in `ansible/inventory.yml`
+(`ansible_host` = the LAN IP now, `pve` once you're off-site). Always export the env first:
+
+```bash
+set -a; . docker/.env; set +a
+cd ansible && ansible-playbook site.yml --check --diff
+```
+
+**Services (once the guest roles are deployed)** — reached by IP, or by name if Caddy + DNS
+are configured:
+
+| Service | Direct | Via Caddy |
+|---------|--------|-----------|
+| Home Assistant | `http://<HAOS_IP>:8123` | `https://ha.<CADDY_LOCAL_DOMAIN>` |
+| Frigate | `http://<SCRYPTED_HOST>:5000` | `https://frigate.<CADDY_LOCAL_DOMAIN>` |
+| Scrypted (homekit profile) | `https://<SCRYPTED_HOST>:10443` | `https://scrypted.<CADDY_LOCAL_DOMAIN>` |
+
 ## HomeKit (off by default)
 
 Scrypted is built in but **disabled** via a Docker Compose profile, so the live stack is
