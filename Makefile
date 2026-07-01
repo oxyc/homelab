@@ -1,4 +1,4 @@
-.PHONY: help lint validate compose-config up homekit down deps check
+.PHONY: help lint validate compose-config up homekit down deps check health
 
 help:           ## Show this help
 	@grep -E '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -49,3 +49,6 @@ tunnel:         ## Start incl. Cloudflare Tunnel (HA via Zero Trust)
 
 down:           ## Stop the stack
 	cd docker && docker compose down
+
+health:         ## SSH health sweep (mem/disk/SMART/temp/units). HOST=ip to override
+	./scripts/health.sh

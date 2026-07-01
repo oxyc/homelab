@@ -105,5 +105,8 @@
     dest: /etc/smartd.conf
     mode: "0644"
     content: |
-      DEVICESCAN -a -o on -S on -n standby,q -m root -M exec /usr/local/bin/homelab-smartd-alert
+      # -W DIFF,INFO,CRIT: log a 4C swing, log once at 65C, and ALERT at 72C. The 3060 micro
+      # has no room for an NVMe heatsink and idles ~60C, so a temperature alert (not just a
+      # SMART-failure alert) is our early warning before the drive thermally throttles.
+      DEVICESCAN -a -W 4,65,72 -o on -S on -n standby,q -m root -M exec /usr/local/bin/homelab-smartd-alert
   notify: Restart smartd
