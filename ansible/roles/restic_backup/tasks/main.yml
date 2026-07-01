@@ -82,14 +82,32 @@
         Persistent=true
         [Install]
         WantedBy=timers.target
+    # Weekly integrity check: structure every run + 10% of the actual data (full data covered
+    # over ~10 weeks). Catches repo/R2 corruption that a plain backup won't. Alerts on failure
+    # via the same homelab_alert webhook smartd uses. (%% -> literal % in a systemd unit.)
+    - name: restic-check.service
+      content: |
+        [Service]
+        EnvironmentFile=/opt/homelab/.env
+        ExecStart=/bin/sh -c 'restic check --read-data-subset=10%% || { curl -fsS -m10 -X POST http://$HAOS_IP:8123/api/webhook/homelab_alert -H "Content-Type: application/json" -d "{\"message\": \"restic check FAILED — backup repo may be corrupt\"}"; exit 1; }'
+    - name: restic-check.timer
+      content: |
+        [Timer]
+        OnCalendar=weekly
+        Persistent=true
+        [Install]
+        WantedBy=timers.target
   delegate_to: "{{ docker_lxc_ip }}"
 
-- name: Enable + start the restic timer
+- name: Enable + start the restic timers
   ansible.builtin.systemd:
-    name: restic-backup.timer
+    name: "{{ item }}"
     enabled: true
     state: started
     daemon_reload: true
+  loop:
+    - restic-backup.timer
+    - restic-check.timer
   delegate_to: "{{ docker_lxc_ip }}"
 # HA side (manual, one-time): Settings -> System -> Storage -> Add network storage (SMB):
 #   host = <docker_lxc_ip>, share = habackup, user/pass = habackup / SMB_PASSWORD,
