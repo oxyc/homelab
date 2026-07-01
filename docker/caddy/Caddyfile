@@ -31,6 +31,13 @@
 		}
 	}
 
+	@trailers host trailers.{$CADDY_LOCAL_DOMAIN}
+	handle @trailers {
+		# Den trailer-service (compose --profile trailers). LAN-only; no auth needed
+		# since it's never exposed. Same compose network, so resolve by service name.
+		reverse_proxy trailer-service:8092
+	}
+
 	@pve host pve.{$CADDY_LOCAL_DOMAIN}
 	handle @pve {
 		reverse_proxy https://{$PROXMOX_IP}:8006 {

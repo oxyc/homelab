@@ -2,8 +2,9 @@
 # Secrets/IPs come from ./.env (gitignored).
 #
 # Default `docker compose up`  => frigate + caddy (+ HA lives in its own VM).
-# HomeKit later                => `docker compose --profile homekit up -d`  (adds scrypted)
-# HA via Cloudflare Zero Trust => `docker compose --profile tunnel up -d`   (adds cloudflared)
+# HomeKit later                => `docker compose --profile homekit up -d`   (adds scrypted)
+# HA via Cloudflare Zero Trust => `docker compose --profile tunnel up -d`    (adds cloudflared)
+# Den trailers (LAN-only)      => `docker compose --profile trailers up -d`  (adds trailer-service)
 name: homelab
 
 services:
@@ -68,8 +69,27 @@ services:
     volumes:
       - scrypted_data:/server/volume   # HomeKit pairings live here (not backed up by choice)
 
+  # --- Den trailer proxy: YouTube id -> App-Store-safe MP4 for inline tvOS playback ---
+  # LAN-only by design: fronted by Caddy at https://trailers.${CADDY_LOCAL_DOMAIN}, never
+  # published or tunneled — the Apple TV must be on the same LAN. Needs internet (yt-dlp
+  # reaches YouTube), which the mgmt LAN has. No env_file: it only wants its own defaults,
+  # so we don't leak the secrets in .env into an internet-facing container.
+  # Image is built + pushed from github.com/oxyc/den-trailer-service (GHCR).
+  # Opt in: `docker compose --profile trailers up -d`.
+  trailer-service:
+    image: ghcr.io/oxyc/den-trailer-service:${TRAILER_SERVICE_VERSION:-latest}
+    container_name: trailer-service
+    restart: unless-stopped
+    profiles: ["trailers"]
+    volumes:
+      - trailer_cache:/cache
+    # No published port: Caddy reverse-proxies it over the LAN (https, real cert → no ATS
+    # exception needed in Den). Add `ports: ["8092:8092"]` only if you want direct
+    # http://<lxc-ip>:8092 access instead — then Den needs NSAllowsLocalNetworking.
+
 volumes:
   frigate_data:
   scrypted_data:
   caddy_data:
   caddy_config:
+  trailer_cache:
