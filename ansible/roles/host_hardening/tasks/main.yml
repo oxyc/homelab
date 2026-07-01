@@ -110,3 +110,48 @@
       # SMART-failure alert) is our early warning before the drive thermally throttles.
       DEVICESCAN -a -W 4,65,72 -o on -S on -n standby,q -m root -M exec /usr/local/bin/homelab-smartd-alert
   notify: Restart smartd
+
+# --- external dead-man's switch (optional: only if HEALTHCHECK_URL is set) ---
+# The host pings healthchecks.io on a timer; if the box (or its internet) dies, the pings
+# stop and healthchecks.io alerts YOU. This is the only monitor that survives the box being
+# fully down — every other alert here is sent *by* the box. URL kept in a 0600 file so it's
+# never in a world-readable unit (anyone with it could mask an outage by pinging).
+- name: Deploy the healthcheck ping URL (0600)
+  ansible.builtin.copy:
+    dest: /etc/homelab-healthcheck.env
+    content: "HEALTHCHECK_URL={{ lookup('ansible.builtin.env', 'HEALTHCHECK_URL') }}\n"
+    mode: "0600"
+  when: lookup('ansible.builtin.env', 'HEALTHCHECK_URL') | length > 0
+
+- name: Install the healthcheck ping service + timer
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ item.name }}"
+    content: "{{ item.content }}"
+    mode: "0644"
+  loop:
+    - name: healthcheck-ping.service
+      content: |
+        [Service]
+        Type=oneshot
+        EnvironmentFile=/etc/homelab-healthcheck.env
+        # --retry 3: ride out a transient blip so one dropped ping doesn't read as "down".
+        ExecStart=/usr/bin/curl -fsS -m10 --retry 3 ${HEALTHCHECK_URL}
+    - name: healthcheck-ping.timer
+      content: |
+        [Timer]
+        OnBootSec=2min
+        OnUnitActiveSec=15min
+        [Install]
+        WantedBy=timers.target
+  when: lookup('ansible.builtin.env', 'HEALTHCHECK_URL') | length > 0
+
+- name: Enable the healthcheck ping timer + send one ping now
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop:
+    - healthcheck-ping.timer
+    - healthcheck-ping.service   # oneshot → fires an immediate ping so the check goes green
+  when: lookup('ansible.builtin.env', 'HEALTHCHECK_URL') | length > 0
