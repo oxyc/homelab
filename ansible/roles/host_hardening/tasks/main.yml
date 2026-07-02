@@ -121,6 +121,7 @@
     dest: /etc/homelab-healthcheck.env
     content: "HEALTHCHECK_URL={{ lookup('ansible.builtin.env', 'HEALTHCHECK_URL') }}\n"
     mode: "0600"
+  no_log: true   # the URL is a secret (pinging it can mask an outage)
   when: lookup('ansible.builtin.env', 'HEALTHCHECK_URL') | length > 0
 
 - name: Install the healthcheck ping service + timer
