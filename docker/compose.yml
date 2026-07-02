@@ -7,6 +7,7 @@
 # Den trailers (LAN-only)      => `docker compose --profile trailers up -d`  (adds trailer-service)
 # Den Scout (streams, https)   => `docker compose --profile scout up -d`     (adds den-scout)
 # Den Atlas (dataset, LAN)     => `docker compose --profile atlas up -d`     (adds den-atlas)
+# Den Subtitles (LAN)          => `docker compose --profile subtitles up -d`(adds den-subtitles)
 name: homelab
 
 services:
@@ -150,9 +151,34 @@ services:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
 
+  # --- Den Subtitles: Stremio subtitles addon (Rust) — OpenSubtitles hash-match + BYOK AI
+  # translation + auto-sync ladder (alass/ffsubsync). Holds NO secrets: the OpenSubtitles + LLM
+  # keys are per-install, entered at /configure and carried in the addon URL (Den Keychain). LAN;
+  # Den reaches it at http://<lxc-ip>:8093. Unlike scout/atlas it WRITES (SRT cache + sync scratch),
+  # so not read-only — it gets a cache volume instead. Image: github.com/oxyc/den-subtitles (GHCR).
+  # Opt in: `--profile subtitles up -d`.
+  den-subtitles:
+    image: ghcr.io/oxyc/den-subtitles:${DEN_SUBTITLES_VERSION:-latest}
+    container_name: den-subtitles
+    restart: unless-stopped
+    profiles: ["subtitles"]
+    environment:
+      PORT: "8093"
+    volumes:
+      - subtitles_cache:/cache        # cached/synced SRTs + the sync scratch dir
+    ports:
+      - "8093:8093"                   # LAN: add http://<lxc-ip>:8093/<config>/manifest.json in Den
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    mem_limit: 512m                   # headroom for the alass/ffsubsync sync ladder
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
 volumes:
   frigate_data:
   scrypted_data:
   caddy_data:
   caddy_config:
   trailer_cache:
+  subtitles_cache:

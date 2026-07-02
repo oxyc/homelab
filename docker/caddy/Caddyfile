@@ -57,6 +57,14 @@
 		reverse_proxy den-atlas:8080
 	}
 
+	@subs host subs.{$CADDY_LOCAL_DOMAIN}
+	handle @subs {
+		# Den Subtitles (compose --profile subtitles). LAN-only; same compose network, resolve by
+		# service name. Gzip the SRT/JSON responses. Blob URLs derive from the forwarded Host/proto.
+		encode zstd gzip
+		reverse_proxy den-subtitles:8093
+	}
+
 	@pve host pve.{$CADDY_LOCAL_DOMAIN}
 	handle @pve {
 		reverse_proxy https://{$PROXMOX_IP}:8006 {
