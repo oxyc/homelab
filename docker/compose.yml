@@ -71,16 +71,16 @@ services:
     volumes:
       - scrypted_data:/server/volume   # HomeKit pairings live here (not backed up by choice)
 
-  # --- Den trailers: addon (imdb->ytId) + yt-dlp/ffmpeg proxy (ytId->MP4) in one container ---
+  # --- Den Reel: addon (imdb->ytId) + yt-dlp/ffmpeg proxy (ytId->MP4), one Rust binary ---
   # LAN-only by design: fronted by Caddy at https://trailers.${CADDY_LOCAL_DOMAIN}, never
   # published or tunneled — the Apple TV must be on the same LAN. Needs internet (TMDB + yt-dlp
   # reach the web), which the mgmt LAN has. We pass ONLY the two keys it needs (not env_file),
   # so the rest of .env doesn't leak into an internet-facing container. Caddy forwards Host +
   # X-Forwarded-Proto, so the addon builds correct https://trailers.<domain>/play/... URLs.
-  # Image built + pushed from github.com/oxyc/den-trailer-service (GHCR).
+  # Image built + pushed from github.com/oxyc/den-reel (GHCR; Rust binary + yt-dlp + ffmpeg).
   # Add https://trailers.<domain>/manifest.json to Den. Opt in: `--profile trailers up -d`.
   trailer-service:
-    image: ghcr.io/oxyc/den-trailer-service:${TRAILER_SERVICE_VERSION:-latest}
+    image: ghcr.io/oxyc/den-reel:${DEN_REEL_VERSION:-latest}
     container_name: trailer-service
     restart: unless-stopped
     profiles: ["trailers"]
