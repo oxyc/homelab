@@ -65,3 +65,52 @@
     daemon_reload: true
   when: not molecule_test
   delegate_to: "{{ docker_lxc_ip }}"
+
+# --- atlas dataset auto-sync: the atlas image is server-only (blobs are a separate GitHub Release),
+# so poll den-dataset's `data-latest` and refresh the mounted blobs (+ restart atlas) when the
+# datasetVersion bumps. Only when the atlas profile is deployed.
+- name: Ensure curl (atlas dataset-sync fetches over HTTPS)
+  ansible.builtin.apt:
+    name: curl
+    state: present
+  when: "'atlas' in compose_profiles and not molecule_test"
+  delegate_to: "{{ docker_lxc_ip }}"
+
+- name: Install the atlas dataset-sync script
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/atlas-dataset-sync.sh"
+    dest: /usr/local/bin/atlas-dataset-sync
+    mode: "0755"
+  when: "'atlas' in compose_profiles and not molecule_test"
+  delegate_to: "{{ docker_lxc_ip }}"
+
+- name: Install the atlas dataset-sync service + timer
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ item.name }}"
+    content: "{{ item.content }}"
+    mode: "0644"
+  loop:
+    - name: atlas-dataset-sync.service
+      content: |
+        [Service]
+        Type=oneshot
+        Environment=ATLAS_DATA_DIR={{ homelab_dir }}/atlas-data ATLAS_CONTAINER=den-atlas
+        ExecStart=/usr/local/bin/atlas-dataset-sync
+    - name: atlas-dataset-sync.timer
+      content: |
+        [Timer]
+        OnBootSec=3min
+        OnUnitActiveSec=30min
+        [Install]
+        WantedBy=timers.target
+  when: "'atlas' in compose_profiles and not molecule_test"
+  delegate_to: "{{ docker_lxc_ip }}"
+
+- name: Enable the atlas dataset-sync timer
+  ansible.builtin.systemd:
+    name: atlas-dataset-sync.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: "'atlas' in compose_profiles and not molecule_test"
+  delegate_to: "{{ docker_lxc_ip }}"
