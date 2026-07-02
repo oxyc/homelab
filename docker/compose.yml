@@ -5,6 +5,8 @@
 # HomeKit later                => `docker compose --profile homekit up -d`   (adds scrypted)
 # HA via Cloudflare Zero Trust => `docker compose --profile tunnel up -d`    (adds cloudflared)
 # Den trailers (LAN-only)      => `docker compose --profile trailers up -d`  (adds trailer-service)
+# Den Scout (streams, https)   => `docker compose --profile scout up -d`     (adds den-scout)
+# Den Atlas (dataset, LAN)     => `docker compose --profile atlas up -d`     (adds den-atlas)
 name: homelab
 
 services:
@@ -90,6 +92,63 @@ services:
     # No published port: Caddy reverse-proxies it over the LAN (https, real cert → no ATS
     # exception needed in Den). Add `ports: ["8092:8092"]` only if you want direct
     # http://<lxc-ip>:8092 access instead — then Den needs NSAllowsLocalNetworking.
+
+  # --- Den Scout: self-hosted Stremio stream addon (scrape → rank → cached-first debrid resolve) ---
+  # LAN-only for now (like the trailer service): Den reaches it at http://<lxc-ip>:8080 — Den's
+  # NSAllowsLocalNetworking exempts LAN hosts from the https-only addon check, so no cert is needed.
+  # Egress is the box's single fixed WAN IP, which is what Real-Debrid pins tokens to. Holds NO
+  # secrets: the debrid token is per-install, encoded in the addon URL the user builds in Den →
+  # Settings → Streaming source (or on scout's /configure page), never in this container's env.
+  # The Caddy `scout.<domain>` route below is the eventual public-https path; harmless meanwhile.
+  # Image built + pushed from github.com/oxyc/den-scout (GHCR). Opt in: `--profile scout up -d`.
+  den-scout:
+    image: ghcr.io/oxyc/den-scout:${DEN_SCOUT_VERSION:-latest}
+    container_name: den-scout
+    restart: unless-stopped
+    profiles: ["scout"]
+    environment:
+      PORT: "8080"
+      SCOUT_SCRAPE_TIMEOUT_MS: "${SCOUT_SCRAPE_TIMEOUT_MS:-8000}"
+      SCOUT_LIST_TTL_SECONDS: "${SCOUT_LIST_TTL_SECONDS:-300}"
+      SCOUT_MEDIAFUSION_URL: "${SCOUT_MEDIAFUSION_URL:-}"   # base incl. its encrypted-config segment
+    ports:
+      - "8080:8080"                       # LAN: add http://<lxc-ip>:8080/<config>/manifest.json in Den
+    read_only: true                       # only needs outbound https + its listen socket
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    mem_limit: 256m
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }   # log rotation
+    # In-container MemoryCache (TTL) is the cache backend — right for one replica; add a redis
+    # service + back the Cache seam with it only if you ever scale past one container.
+
+  # --- Den Atlas: dataset addon — serves the derived feature store (labels + int8 vectors) that
+  # Den downloads + refreshes for on-device similar-titles / categories / billboard. Holds NO
+  # secrets, no /configure. LAN-only like the others; Den reaches it at http://<lxc-ip>:8081.
+  # IMPORTANT: the PUBLISHED image is SERVER-ONLY — the ~33MB dataset blobs are gitignored, so you
+  # MOUNT them at /app/data. Produce/refresh them with a local `npm run import` in the den-atlas
+  # repo, then copy its ./data/* into ./atlas-data here (gitignored) BEFORE first start, else it
+  # exits with ENOENT dataset.meta.json. Image: github.com/oxyc/den-atlas (GHCR).
+  # Opt in: `--profile atlas up -d`. (Port 8081 on the host — 8080 is scout.)
+  den-atlas:
+    image: ghcr.io/oxyc/den-atlas:${DEN_ATLAS_VERSION:-latest}
+    container_name: den-atlas
+    restart: unless-stopped
+    profiles: ["atlas"]
+    environment:
+      PORT: "8080"
+    volumes:
+      - ./atlas-data:/app/data:ro     # the dataset blobs (populate before starting)
+    ports:
+      - "8081:8080"                   # LAN: add http://<lxc-ip>:8081/manifest.json in Den
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    mem_limit: 256m
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
 
 volumes:
   frigate_data:

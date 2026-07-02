@@ -38,6 +38,25 @@
 		reverse_proxy trailer-service:8092
 	}
 
+	@scout host scout.{$CADDY_LOCAL_DOMAIN}
+	handle @scout {
+		# Den Scout (compose --profile scout). Reverse-proxied over https with a real wildcard cert so
+		# Den's https-only addon check passes. Caddy forwards Host + X-Forwarded-Proto, so Scout builds
+		# correct https://scout.<domain>/play/... URLs. Same compose network → resolve by service name.
+		# Compress the JSON/HTML responses here (offloads it from Node); the 302 /play has no body.
+		encode zstd gzip
+		reverse_proxy den-scout:8080
+	}
+
+	@atlas host atlas.{$CADDY_LOCAL_DOMAIN}
+	handle @atlas {
+		# Den Atlas (compose --profile atlas). LAN-only dataset addon; same compose network,
+		# resolve by service name. Blob URLs derive from the forwarded Host/proto. Gzip the JSON
+		# labels (~11MB → far less on the wire); the .bin vectors are already compact int8.
+		encode zstd gzip
+		reverse_proxy den-atlas:8080
+	}
+
 	@pve host pve.{$CADDY_LOCAL_DOMAIN}
 	handle @pve {
 		reverse_proxy https://{$PROXMOX_IP}:8006 {
