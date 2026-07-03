@@ -210,7 +210,7 @@ services:
       PORT: "8080"
     security_opt: ["no-new-privileges:true"]
     cap_drop: ["ALL"]
-    mem_limit: 2560m                  # bge-m3 int8 weights + onnxruntime activation headroom
+    mem_limit: 1536m                  # measured ~900MiB resident after a query; ~1.7x headroom
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
