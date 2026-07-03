@@ -8,6 +8,7 @@
 # Den Scout (streams, https)   => `docker compose --profile scout up -d`     (adds den-scout)
 # Den Atlas (dataset, LAN)     => `docker compose --profile atlas up -d`     (adds den-atlas)
 # Den Subtitles (LAN)          => `docker compose --profile subtitles up -d`(adds den-subtitles)
+# Semantic search (embedder)   => `docker compose --profile atlas --profile embed up -d` (+ den-embed)
 name: homelab
 
 services:
@@ -151,6 +152,10 @@ services:
     profiles: ["atlas"]
     environment:
       PORT: "8080"
+      # Semantic search: atlas proxies query text to den-embed at POST /embed. Empty = /embed 503s.
+      # Bring up den-embed with the `embed` profile and set DEN_EMBED_URL=http://den-embed:8080 in
+      # .env — they resolve each other by service name on the compose network.
+      DEN_EMBED_URL: ${DEN_EMBED_URL:-}
     volumes:
       - ./atlas-data:/app/data:ro     # the dataset blobs (populate before starting)
     ports:
@@ -187,6 +192,25 @@ services:
     security_opt: ["no-new-privileges:true"]
     cap_drop: ["ALL"]
     mem_limit: 512m                   # headroom for the alass/ffsubsync sync ladder
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  # --- den-embed: bge-m3 int8 embedding service for den-atlas's semantic search. atlas proxies query
+  # text to it (POST /embed → here); internal-only (no host port) — atlas reaches it by service name on
+  # the compose network. Model is BAKED into the image (~1.5GB; no volume/download), ~2GB RAM while
+  # embedding a query, low at idle. Built-in healthcheck. Image: github.com/oxyc/den-embed (GHCR).
+  # Opt in with `--profile embed` alongside atlas AND set DEN_EMBED_URL=http://den-embed:8080 in .env.
+  den-embed:
+    image: ghcr.io/oxyc/den-embed:${DEN_EMBED_VERSION:-latest}
+    container_name: den-embed
+    restart: unless-stopped
+    profiles: ["embed"]
+    environment:
+      PORT: "8080"
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    mem_limit: 2560m                  # bge-m3 int8 weights + onnxruntime activation headroom
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
