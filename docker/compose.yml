@@ -86,7 +86,15 @@ services:
     restart: unless-stopped
     profiles: ["trailers"]
     environment:
-      TMDB_KEY: ${TMDB_KEY}              # required for the addon (/meta lookups)
+      # Sealed config-in-URL: with REEL_CONFIG_KEY set, /configure seals the user's BYOK TMDB key into
+      # the install URL, so no discovery key lives on the server. Unset = sealing off, TMDB_KEY below is
+      # used as the fallback (legacy plaintext installs keep working). KEYS_PREV holds comma-separated
+      # prior keys so a rotation doesn't break existing sealed URLs — leave empty until you rotate.
+      REEL_CONFIG_KEY: ${REEL_CONFIG_KEY:-}
+      REEL_CONFIG_KEYS_PREV: ${REEL_CONFIG_KEYS_PREV:-}
+      # Migration fallback only (used when a request carries no per-install config). Drop these once every
+      # install is re-added with a sealed /configure URL.
+      TMDB_KEY: ${TMDB_KEY:-}            # legacy server-side TMDB key (/meta lookups)
       KINOCHECK_KEY: ${KINOCHECK_KEY:-}  # optional trailer-discovery fallback
     volumes:
       - trailer_cache:/cache
@@ -112,6 +120,10 @@ services:
       SCOUT_SCRAPE_TIMEOUT_MS: "${SCOUT_SCRAPE_TIMEOUT_MS:-8000}"
       SCOUT_LIST_TTL_SECONDS: "${SCOUT_LIST_TTL_SECONDS:-300}"
       SCOUT_MEDIAFUSION_URL: "${SCOUT_MEDIAFUSION_URL:-}"   # base incl. its encrypted-config segment
+      # Sealed config-in-URL: set SCOUT_CONFIG_KEY and /configure seals the BYOK debrid token into the
+      # URL (unset = legacy plaintext still works). KEYS_PREV = comma-separated prior keys for rotation.
+      SCOUT_CONFIG_KEY: "${SCOUT_CONFIG_KEY:-}"
+      SCOUT_CONFIG_KEYS_PREV: "${SCOUT_CONFIG_KEYS_PREV:-}"
     ports:
       - "8080:8080"                       # LAN: add http://<lxc-ip>:8080/<config>/manifest.json in Den
     read_only: true                       # only needs outbound https + its listen socket
@@ -164,6 +176,10 @@ services:
     profiles: ["subtitles"]
     environment:
       PORT: "8093"
+      # Sealed config-in-URL: set SUBS_CONFIG_KEY and /configure seals the BYOK OpenSubtitles + LLM keys
+      # into the URL (unset = legacy plaintext still works). KEYS_PREV = comma-separated prior keys.
+      SUBS_CONFIG_KEY: "${SUBS_CONFIG_KEY:-}"
+      SUBS_CONFIG_KEYS_PREV: "${SUBS_CONFIG_KEYS_PREV:-}"
     volumes:
       - subtitles_cache:/cache        # cached/synced SRTs + the sync scratch dir
     ports:
