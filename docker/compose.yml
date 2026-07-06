@@ -97,6 +97,10 @@ services:
       # install is re-added with a sealed /configure URL.
       TMDB_KEY: ${TMDB_KEY:-}            # legacy server-side TMDB key (/meta lookups)
       KINOCHECK_KEY: ${KINOCHECK_KEY:-}  # optional trailer-discovery fallback
+      # LRU cache cap. den-reel defaults to 8GB, which is too large when it shares an LXC rootfs with
+      # den-embed + the atlas dataset + image layers (an 8GB cache filled the 20GB test box and blocked
+      # every image pull, incl. Watchtower's). 3GB is plenty for a warm working set of faststart trailers.
+      CACHE_MAX_BYTES: ${REEL_CACHE_MAX_BYTES:-3221225472}
     volumes:
       - trailer_cache:/cache
     # No published port: Caddy reverse-proxies it over the LAN (https, real cert → no ATS
