@@ -1,13 +1,20 @@
 #!/bin/sh
 # Keep the mounted den-atlas dataset in sync with the published den-dataset `data-latest` release.
 # The atlas image is server-only (blobs are gitignored + shipped as a GitHub Release), so this polls
-# the release, and when its datasetVersion changes it downloads + sha256-verifies the blobs (labels,
-# vectors, the gz, AND the poster-metadata sidecar), swaps the WHOLE set into the mounted data dir —
-# clearing stale files from a prior taxonomy/model so they don't pile up — and restarts atlas (the
-# Rust server reads the dataset at boot).
+# the release and swaps the mounted data dir when it changes, then restarts atlas (it reads the
+# dataset at boot). Runs on the LXC host (docker + the mount live there) via a systemd timer.
+# Idempotent: a no-op when already current.
 #
-# Runs on the LXC host (where docker + the mount live) via a systemd timer. Idempotent: a no-op when
-# already current. Config via env:
+# HARDENED (2026-07): the trigger is now "the release meta differs from what's on disk in ANY way" —
+# not just a bumped datasetVersion. New artifacts (the poster metadata sidecar, then the premise
+# index) were both ADDED under an UNCHANGED datasetVersion, and the old version-only gate skipped
+# them, stranding the homelab. It also fetches EVERY "<name>File" the meta declares (labels, gz,
+# vectors, metadata, premise, and anything future), verifying each against its "<name>Sha256". So a
+# new dataset artifact goes live on the next tick with no edit here — that recurring "homelab didn't
+# pick up the new files" bug can't recur. (Contract: the producer MAY add files without bumping
+# datasetVersion; this copes either way.)
+#
+# Config via env:
 #   ATLAS_DATA_DIR   dir bind-mounted into atlas at /app/data   (default /opt/atlas-data)
 #   ATLAS_CONTAINER  container to restart after a refresh        (default atlas)
 #   DEN_DATASET_REPO source release repo                         (default oxyc/den-dataset)
@@ -20,39 +27,48 @@ CONTAINER="${ATLAS_CONTAINER:-atlas}"
 
 # Minimal JSON string-field read (no jq/python dep on the host).
 jval() { grep -o "\"$1\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | head -1 | sed 's/.*"\([^"]*\)"$/\1/'; }
+# Every key that names a data file (ends in "File"): labelsFile, labelsGzFile, premiseVectorsFile, ...
+jfilekeys() { grep -oE "\"[A-Za-z0-9]+File\"" | tr -d '"' | sort -u; }
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
 curl -fsSL "$BASE/dataset.meta.json" -o "$TMP/dataset.meta.json"
 NEW_VER="$(jval datasetVersion < "$TMP/dataset.meta.json")"
 [ -n "$NEW_VER" ] || { echo "atlas-sync: no datasetVersion in release meta" >&2; exit 1; }
-CUR_VER=""
-# -s (non-empty): a 0-byte meta from a prior half-write must count as "not current", not crash.
-[ -s "$DATA_DIR/dataset.meta.json" ] && CUR_VER="$(jval datasetVersion < "$DATA_DIR/dataset.meta.json")" || true
-[ "$NEW_VER" = "$CUR_VER" ] && exit 0   # already current
 
-echo "atlas-sync: dataset ${CUR_VER:-none} -> $NEW_VER, refreshing"
-LABELS="$(jval labelsFile     < "$TMP/dataset.meta.json")"
-VECTORS="$(jval vectorsFile    < "$TMP/dataset.meta.json")"
-GZ="$(jval labelsGzFile        < "$TMP/dataset.meta.json" || true)"
-METADATA="$(jval metadataFile  < "$TMP/dataset.meta.json" || true)"   # poster sidecar (newer datasets)
-for f in "$LABELS" "$VECTORS" ${GZ:+$GZ} ${METADATA:+$METADATA}; do
+# Content-aware gate: identical meta => already current. cmp catches added files / changed shas even
+# when datasetVersion is unchanged — the exact failure that stranded the sidecar and premise indexes.
+if [ -s "$DATA_DIR/dataset.meta.json" ] && cmp -s "$TMP/dataset.meta.json" "$DATA_DIR/dataset.meta.json"; then
+  exit 0
+fi
+CUR_VER="$( ([ -s "$DATA_DIR/dataset.meta.json" ] && jval datasetVersion < "$DATA_DIR/dataset.meta.json") || echo none )"
+echo "atlas-sync: dataset meta changed (${CUR_VER} -> ${NEW_VER}), refreshing"
+
+# Fetch every declared file + sha-verify each (a file may legitimately carry no sha, e.g. the gz — skip).
+FETCHED=""
+for key in $(jfilekeys < "$TMP/dataset.meta.json"); do
+  f="$(jval "$key" < "$TMP/dataset.meta.json")"
+  [ -n "$f" ] || continue
   curl -fsSL "$BASE/$f" -o "$TMP/$f"
+  want="$(jval "${key%File}Sha256" < "$TMP/dataset.meta.json" || true)"
+  if [ -n "$want" ]; then
+    echo "$want  $TMP/$f" | sha256sum -c - >/dev/null
+  fi
+  FETCHED="$FETCHED $f"
 done
-
-# sha256-verify what the meta pins (guards a truncated/tampered download before we swap).
-echo "$(jval labelsSha256  < "$TMP/dataset.meta.json")  $TMP/$LABELS"  | sha256sum -c - >/dev/null
-echo "$(jval vectorsSha256 < "$TMP/dataset.meta.json")  $TMP/$VECTORS" | sha256sum -c - >/dev/null
-[ -n "$METADATA" ] && echo "$(jval metadataSha256 < "$TMP/dataset.meta.json")  $TMP/$METADATA" | sha256sum -c - >/dev/null
 
 mkdir -p "$DATA_DIR"
-# Clear the prior dataset's blobs (different taxonomy/model → different filenames would otherwise
-# accumulate), then move the verified current set in. atlas reads at boot, so the brief gap is fine —
-# we restart it right after.
-rm -f "$DATA_DIR"/dataset.meta.json "$DATA_DIR"/labels-*.json "$DATA_DIR"/labels-*.json.gz \
-      "$DATA_DIR"/vectors-*.bin "$DATA_DIR"/metadata-*.json
-for f in dataset.meta.json "$LABELS" "$VECTORS" ${GZ:+$GZ} ${METADATA:+$METADATA}; do
-  mv -f "$TMP/$f" "$DATA_DIR/$f"
-done
+# Remove exactly the previously-laid set (read from the OLD meta) so renamed/removed artifacts across a
+# taxonomy/model change don't linger — fully generic, no filename globs to keep in sync.
+if [ -s "$DATA_DIR/dataset.meta.json" ]; then
+  for k in $(jfilekeys < "$DATA_DIR/dataset.meta.json"); do
+    of="$(jval "$k" < "$DATA_DIR/dataset.meta.json")"
+    [ -n "$of" ] && rm -f "$DATA_DIR/$of"
+  done
+fi
+rm -f "$DATA_DIR/dataset.meta.json"
+
+for f in $FETCHED; do mv -f "$TMP/$f" "$DATA_DIR/$f"; done
+mv -f "$TMP/dataset.meta.json" "$DATA_DIR/dataset.meta.json"
 docker restart "$CONTAINER" >/dev/null 2>&1 || echo "atlas-sync: warn — could not restart $CONTAINER" >&2
-echo "atlas-sync: refreshed to $NEW_VER (metadata: ${METADATA:-none}) and restarted $CONTAINER"
+echo "atlas-sync: refreshed to $NEW_VER ($(echo "$FETCHED" | wc -w) files) and restarted $CONTAINER"

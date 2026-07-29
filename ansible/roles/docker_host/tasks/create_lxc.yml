@@ -12,7 +12,10 @@
     features: "nesting=1"
     # static IP (matches the ip-plan) so delegation hits a known address, no DHCP reservation race
     netif: '{"net0":"name=eth0,bridge=vmbr0,ip={{ docker_lxc_ip }}/24,gw={{ docker_lxc_gw }}"}'
-    nameserver: "{{ docker_lxc_gw }}"
+    # Gateway DNS + a public fallback: if the LAN resolver hiccups (or something like a
+    # half-installed Tailscale rewrites resolv.conf to a dead MagicDNS server), the LXC can
+    # still resolve GHCR/GitHub — otherwise docker pulls + the dataset sync silently stall.
+    nameserver: "{{ docker_lxc_gw }} 1.1.1.1"
     pubkey: "{{ lookup('ansible.builtin.url', 'https://github.com/' + admin_github_user + '.keys', split_lines=false) }}"
     state: present
 
