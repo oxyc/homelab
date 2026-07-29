@@ -11,5 +11,7 @@ rules:
   braces:
     # Frigate uses {FRIGATE_*} placeholders inside quoted strings
     forbid: false
+    # allow the readable inline flow-mapping style, e.g. `options: { max-size: "10m" }`
+    max-spaces-inside: 1
 ignore: |
   ansible/roles/*/tasks/main.yml

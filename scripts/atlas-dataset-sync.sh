@@ -42,14 +42,32 @@ if [ -s "$DATA_DIR/dataset.meta.json" ] && cmp -s "$TMP/dataset.meta.json" "$DAT
   exit 0
 fi
 CUR_VER="$( ([ -s "$DATA_DIR/dataset.meta.json" ] && jval datasetVersion < "$DATA_DIR/dataset.meta.json") || echo none )"
-echo "atlas-sync: dataset meta changed (${CUR_VER} -> ${NEW_VER}), refreshing"
+
+# Pre-flight: a release is only safe to apply once EVERY declared blob actually exists. GitHub release
+# assets get replaced in a non-atomic window (meta bumped, blobs not all re-uploaded yet), which we've
+# hit for real — the meta declared 6 files but only 1 was up, the rest 404. Verify all are present
+# BEFORE touching anything; if the release is half-published, keep the last-good dataset and retry next
+# tick — never fail loudly and never lay a partial dataset.
+MISSING=""
+for key in $(jfilekeys < "$TMP/dataset.meta.json"); do
+  f="$(jval "$key" < "$TMP/dataset.meta.json")"; [ -n "$f" ] || continue
+  code="$(curl -sL -m 20 -o /dev/null -w '%{http_code}' -r 0-0 "$BASE/$f" 2>/dev/null || echo 000)"
+  case "$code" in 200 | 206) : ;; *) MISSING="$MISSING $f($code)" ;; esac
+done
+if [ -n "$MISSING" ]; then
+  echo "atlas-sync: release $NEW_VER is half-published — missing/unready:$MISSING — keeping ${CUR_VER}, will retry next tick" >&2
+  exit 0
+fi
+
+echo "atlas-sync: dataset meta changed (${CUR_VER} -> ${NEW_VER}), all blobs present, refreshing"
 
 # Fetch every declared file + sha-verify each (a file may legitimately carry no sha, e.g. the gz — skip).
+# --retry rides out a transient blip so one dropped connection doesn't abort the whole refresh.
 FETCHED=""
 for key in $(jfilekeys < "$TMP/dataset.meta.json"); do
   f="$(jval "$key" < "$TMP/dataset.meta.json")"
   [ -n "$f" ] || continue
-  curl -fsSL "$BASE/$f" -o "$TMP/$f"
+  curl -fsSL --retry 3 --retry-delay 2 -m 300 "$BASE/$f" -o "$TMP/$f"
   want="$(jval "${key%File}Sha256" < "$TMP/dataset.meta.json" || true)"
   if [ -n "$want" ]; then
     echo "$want  $TMP/$f" | sha256sum -c - >/dev/null
