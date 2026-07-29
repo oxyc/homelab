@@ -6,3 +6,35 @@
 
 - name: Deploy the compose stack
   ansible.builtin.import_tasks: deploy_stack.yml
+
+# Weekly vzdump of the Docker LXC -> the nvr disk (a SEPARATE physical drive, so a
+# boot-SSD death doesn't take the backups with it). Snapshot mode = ~no downtime.
+# The container is ~4.5GB compressed; keep-last=2 (latest + one fallback) is plenty —
+# the container is largely reproducible (GHCR images, compose, re-syncable dataset),
+# so deep history buys little. The one fallback covers "a backup ran right after a break".
+# Recovery after a boot-SSD failure: reinstall PVE -> re-run this playbook -> the nvr
+# disk survives -> `pct restore {{ docker_ctid }} /mnt/nvr/dump/vzdump-lxc-*.tar.zst
+# --storage local-lvm` -> redeploy the stack. (Camera footage on nvr is NOT backed up
+# by design — it's disposable.)
+- name: Weekly vzdump of the Docker LXC -> nvr (real runs only)
+  when: not molecule_test
+  block:
+    - name: Read existing PVE backup jobs
+      ansible.builtin.command: pvesh get /cluster/backup --output-format json
+      register: pve_backup_jobs
+      changed_when: false
+
+    - name: Create the weekly vzdump job when one for this CT is not already registered
+      ansible.builtin.command: >-
+        pvesh create /cluster/backup
+        --schedule "sun 03:00"
+        --storage nvr
+        --vmid {{ docker_ctid }}
+        --mode snapshot
+        --compress zstd
+        --prune-backups keep-last=2
+        --notes-template "{% raw %}{{guestname}}{% endraw %} weekly (Ansible)"
+        --enabled 1
+        --comment "weekly Docker LXC ({{ docker_ctid }}) -> nvr"
+      when: ('"vmid":"' ~ docker_ctid ~ '"') not in pve_backup_jobs.stdout
+      changed_when: true
