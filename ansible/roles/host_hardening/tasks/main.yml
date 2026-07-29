@@ -156,3 +156,99 @@
     - healthcheck-ping.timer
     - healthcheck-ping.service   # oneshot → fires an immediate ping so the check goes green
   when: lookup('ansible.builtin.env', 'HEALTHCHECK_URL') | length > 0
+
+# --- PCIe stability + hardware-watchdog auto-recovery (from a real 3-week outage) ---
+# The boot NVMe (DRAM-less Realtek RTS5765DL) threw a storm of PCIe AER *correctable*
+# errors under ASPM power management and hard-hung the host. The dead-man's switch fired,
+# but nothing rebooted the box, so it sat dead until a manual restart. Two-part fix:
+#   1. Stop the storm at the source: disable PCIe ASPM + NVMe APST power transitions.
+#   2. Add a hardware-watchdog that hard-resets the box if it ever hangs again (any cause).
+# ESCAPE HATCH if the watchdog ever misfires: at GRUB press `e`, append
+# `modprobe.blacklist=iTCO_wdt` to the linux line, Ctrl-X to boot once, then fix the config.
+
+- name: Disable PCIe ASPM + NVMe APST on the kernel cmdline (stops the AER storm)
+  ansible.builtin.replace:
+    path: /etc/default/grub
+    regexp: '^(GRUB_CMDLINE_LINUX_DEFAULT="(?![^"]*pcie_aspm=off)[^"]*)"$'
+    replace: '\1 pcie_aspm=off nvme_core.default_ps_max_latency_us=0"'
+  register: grub_cmdline
+
+- name: Regenerate grub when the cmdline changed (applies on next reboot)
+  ansible.builtin.command: update-grub
+  when: grub_cmdline is changed
+  changed_when: true
+
+- name: Blacklist the software watchdog — we want the real hardware one
+  ansible.builtin.copy:
+    dest: /etc/modprobe.d/softdog-blacklist.conf
+    content: "blacklist softdog\n"
+    mode: "0644"
+
+# watchdog-mux (Proxmox HA) owns /dev/watchdog but only *arms* it for HA-managed guests —
+# useless on a standalone (non-clustered) node. Free the device so systemd can own it.
+- name: Disable Proxmox HA services (standalone node; they pull in watchdog-mux)
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: false
+    state: stopped
+  loop:
+    - pve-ha-lrm
+    - pve-ha-crm
+
+- name: Mask watchdog-mux so nothing re-grabs /dev/watchdog
+  ansible.builtin.systemd:
+    name: watchdog-mux.service
+    masked: true
+
+# Proxmox ships `blacklist iTCO_wdt` in /lib/modprobe.d, so systemd-modules-load refuses it.
+# An explicit `modprobe` by name bypasses the blacklist; a tiny oneshot does that at boot
+# (upgrade-safe, unlike editing Proxmox's /lib file). systemd arms RuntimeWatchdogSec on the
+# device as soon as it appears.
+- name: Install the iTCO watchdog auto-load service (bypasses Proxmox's blacklist)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/hw-watchdog-load.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Load iTCO hardware watchdog (explicit modprobe bypasses blacklist iTCO_wdt)
+      DefaultDependencies=no
+      After=systemd-modules-load.service
+      Before=sysinit.target shutdown.target
+      Conflicts=shutdown.target
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/sbin/modprobe iTCO_wdt
+      [Install]
+      WantedBy=sysinit.target
+  register: wd_load_unit
+
+- name: Enable the watchdog auto-load service + load it now
+  ansible.builtin.systemd:
+    name: hw-watchdog-load.service
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Ensure the systemd manager drop-in dir exists
+  ansible.builtin.file:
+    path: /etc/systemd/system.conf.d
+    state: directory
+    mode: "0755"
+
+- name: Configure systemd auto-reboot-on-hang (60s hardware-watchdog timeout)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system.conf.d/watchdog.conf
+    content: |
+      [Manager]
+      # PID1 stops petting /dev/watchdog for 60s (a real kernel/hardware hang) => iTCO
+      # hard-resets the box. Normal operation pets every ~30s, so this only trips on a freeze.
+      RuntimeWatchdogSec=60
+      RebootWatchdogSec=5min
+    mode: "0644"
+  register: wd_conf
+
+- name: Re-exec systemd so the watchdog arms without waiting for a reboot
+  ansible.builtin.command: systemctl daemon-reexec
+  when: wd_conf is changed
+  changed_when: true
