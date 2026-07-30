@@ -28,6 +28,9 @@
       tags: [haos]
     - role: docker_host        # create privileged LXC, install docker, sync ../docker, compose up
       tags: [docker]
+    - role: gondola_host       # OPT-IN (gondola_enabled): isolated LXC for the gondola.uy app + CI/CD runner
+      tags: [gondola]
+      when: gondola_enabled | default(false)
     - role: restic_backup      # restic -> B2 systemd timer (HA backups + optional secrets/vzdump)
       tags: [backup]
     - role: reolink_cameras    # encoder/NTP config via the Reolink API (run --check first)

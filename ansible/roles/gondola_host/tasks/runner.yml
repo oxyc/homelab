@@ -1,0 +1,84 @@
+# Self-hosted GitHub Actions runner INSIDE the gondola LXC, labelled `grocery-tracker-deploy`
+# to match the repo's existing deploy/ops-health jobs. This is the cost fix: private-repo
+# Actions minutes are limited/paid, and the app's CI + image-build currently burn them on
+# `ubuntu-latest`. Flipping those jobs to `self-hosted` (see docs/gondola.md) makes ALL of
+# CI + build + deploy run here for free — and deploy is already `docker compose pull/up` local
+# to the runner, so it lands straight in this LXC.
+#
+# SECURITY: self-hosted runners are only safe on a PRIVATE repo (untrusted fork PRs must never
+# run on your home network). When gondola goes PUBLIC, move CI/PR jobs BACK to `ubuntu-latest`
+# (free + unlimited for public repos) and keep ONLY deploy self-hosted, environment-gated.
+- name: Create the runner user (in the docker group so deploy jobs can compose up)
+  ansible.builtin.user:
+    name: runner
+    groups: docker
+    append: true
+    create_home: true
+    shell: /bin/bash
+
+- name: Runner directory
+  ansible.builtin.file:
+    path: /opt/actions-runner
+    state: directory
+    owner: runner
+    group: runner
+    mode: "0755"
+
+- name: Download the Actions runner (pinned)
+  ansible.builtin.get_url:
+    url: "https://github.com/actions/runner/releases/download/v{{ gondola_runner_version }}/actions-runner-linux-x64-{{ gondola_runner_version }}.tar.gz"
+    dest: /opt/actions-runner/runner.tar.gz
+    mode: "0644"
+  register: runner_dl
+
+- name: Extract the runner
+  ansible.builtin.unarchive:
+    src: /opt/actions-runner/runner.tar.gz
+    dest: /opt/actions-runner
+    remote_src: true
+    owner: runner
+    group: runner
+    creates: /opt/actions-runner/config.sh
+
+# Registration tokens expire after ~1h, so mint a fresh one at run time from a PAT
+# (gondola_gh_pat, from .env — repo `administration` scope). Only needed when unconfigured.
+- name: Check whether the runner is already configured
+  ansible.builtin.stat:
+    path: /opt/actions-runner/.runner
+  register: runner_cfg
+
+- name: Mint a runner registration token
+  ansible.builtin.uri:
+    url: "https://api.github.com/repos/{{ gondola_repo }}/actions/runners/registration-token"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ gondola_gh_pat }}"
+      Accept: application/vnd.github+json
+    status_code: [201]
+  register: reg_token
+  when: not runner_cfg.stat.exists
+  no_log: true
+
+- name: Configure the runner (labels match the repo's deploy jobs)
+  ansible.builtin.command:
+    cmd: >-
+      ./config.sh --unattended --replace
+      --url https://github.com/{{ gondola_repo }}
+      --token {{ reg_token.json.token }}
+      --name gondola-homelab
+      --labels grocery-tracker-deploy,homelab
+      --work _work
+    chdir: /opt/actions-runner
+  become: true
+  become_user: runner
+  when: not runner_cfg.stat.exists
+  no_log: true
+
+- name: Install + start the runner as a systemd service
+  ansible.builtin.command:
+    cmd: "{{ item }}"
+    chdir: /opt/actions-runner
+  loop:
+    - ./svc.sh install runner
+    - ./svc.sh start
+  changed_when: true

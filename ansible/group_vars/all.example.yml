@@ -4,6 +4,15 @@
 compose_profiles: []
 # compose_profiles: [homekit]
 
+# gondola.uy app + self-hosted CI/CD runner in its own isolated LXC. Off by default.
+# Flip to true and run `ansible-playbook site.yml --tags gondola`. Secrets come from .env:
+#   GONDOLA_GH_PAT         PAT (repo `administration` scope) — mints the runner registration token
+#   GONDOLA_TUNNEL_TOKEN   gondola's own Cloudflare tunnel token (from infra/cloudflare)
+#   GONDOLA_ANTHROPIC_KEY  Anthropic API key for the nightly ai-audit/enrichment steps
+# See docs/gondola.md for the full design + the CI cost fix.
+gondola_enabled: false
+gondola_gh_pat: "{{ lookup('ansible.builtin.env', 'GONDOLA_GH_PAT') }}"
+
 # HAOS image to download for the VM (pin a version).
 haos_image_url: "https://github.com/home-assistant/operating-system/releases/download/14.0/haos_ova-14.0.qcow2.xz"
 

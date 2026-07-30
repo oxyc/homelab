@@ -1,0 +1,25 @@
+# The gondola LXC holds REAL, growing data (the price-history SQLite DB) — not disposable
+# cattle like the den caches — so back it up properly.
+#   - Local point-in-time: daily vzdump -> the nvr disk (separate drive, survives a boot-SSD death).
+#   - In-app: the repo's nightly `run backup --keep 14` already dumps the DB inside the LXC.
+#   - Offsite (the genuinely-missing piece): the restic_backup role pushes /opt/gondola/data
+#     to Backblaze B2 (add gondola_data_dir to restic_paths).
+- name: Read existing PVE backup jobs
+  ansible.builtin.command: pvesh get /cluster/backup --output-format json
+  register: pve_backup_jobs
+  changed_when: false
+
+- name: Create the daily vzdump job for the gondola LXC when absent
+  ansible.builtin.command: >-
+    pvesh create /cluster/backup
+    --schedule "{{ gondola_backup_schedule | default('daily 04:30') }}"
+    --storage nvr
+    --vmid {{ gondola_ctid }}
+    --mode snapshot
+    --compress zstd
+    --prune-backups keep-last={{ gondola_backup_keep | default(7) }}
+    --notes-template "{% raw %}{{guestname}}{% endraw %} daily (Ansible)"
+    --enabled 1
+    --comment "daily gondola LXC ({{ gondola_ctid }}) -> nvr"
+  when: ('"vmid":"' ~ gondola_ctid ~ '"') not in pve_backup_jobs.stdout
+  changed_when: true

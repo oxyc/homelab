@@ -1,0 +1,34 @@
+# Persistent app state OUTSIDE the runner's ephemeral checkout, so the SQLite DB + built
+# output survive every CI/deploy run. The repo's compose mounts ./data + ./out; deploy runs
+# compose from here (TRACKER_STATE_DIR) so those bind-mounts land in persistent storage.
+# This dir sits on the LXC rootfs = the PVE SSD (low-latency WAL fsyncs, off the NVR NVMe).
+- name: Persistent gondola state dirs
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "1000"
+    group: "1000"
+    mode: "0755"
+  loop:
+    - /opt/gondola
+    - /opt/gondola/data
+    - /opt/gondola/out
+
+# Secrets come from the same .env the rest of the homelab uses (Bitwarden note), never committed.
+# This LXC has a native residential egress IP, which resolves an upstream-egress constraint the
+# VPS had — see docs/gondola.md (local) for the specifics + the source-scraper proxy it retires.
+- name: Gondola runtime .env (0600, secrets from environment)
+  ansible.builtin.copy:
+    dest: /opt/gondola/.env
+    owner: "1000"
+    group: "1000"
+    mode: "0600"
+    content: |
+      NODE_ENV=production
+      TRACKER_CACHE_MODE=default
+      # gondola's OWN Cloudflare tunnel token (from infra/cloudflare) — a SECOND cloudflared
+      # runs here, NOT routed through the docker LXC's tunnel (that would punch a hole into
+      # this isolated LXC).
+      CLOUDFLARE_TUNNEL_TOKEN={{ lookup('ansible.builtin.env', 'GONDOLA_TUNNEL_TOKEN') }}
+      ANTHROPIC_API_KEY={{ lookup('ansible.builtin.env', 'GONDOLA_ANTHROPIC_KEY') }}
+  no_log: true

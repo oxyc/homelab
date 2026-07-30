@@ -1,0 +1,24 @@
+# gondola_host: an isolated LXC hosting the grocery-tracker (gondola.uy) app + its self-hosted
+# CI/CD runner. Opt-in via `gondola_enabled` so it never runs unless you want it.
+#
+# Division of labour: THIS role provisions infrastructure (LXC, docker, persistent state + .env,
+# the Actions runner, backups). The APP deploys itself via the gondola repo's own deploy.yml,
+# which runs on the runner registered here (`docker compose pull/up` local to this LXC) and
+# installs the nightly systemd timer (deploy/systemd/grocery-daily.timer, 01:00 Montevideo).
+# See docs/gondola.md for the full design + the one-line `runs-on` change that moves CI off paid
+# ubuntu-latest onto this runner.
+- name: Create + prepare the gondola LXC
+  ansible.builtin.import_tasks: create_lxc.yml
+  when: not molecule_test
+
+- name: Persistent app state + runtime .env
+  ansible.builtin.import_tasks: app.yml
+  when: not molecule_test
+
+- name: Install the self-hosted CI/CD runner
+  ansible.builtin.import_tasks: runner.yml
+  when: not molecule_test
+
+- name: Back up the gondola LXC (real data, not cattle)
+  ansible.builtin.import_tasks: backup.yml
+  when: not molecule_test
