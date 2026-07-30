@@ -16,10 +16,12 @@ all:
     docker_lxc_ip: 192.168.x.x         # static IP given to the LXC (VLAN10, e.g. .10.10)
     docker_lxc_gw: 192.168.x.1         # VLAN10 gateway (+ DNS) for the LXC
 
-    # gondola.uy app (OPT-IN — set gondola_enabled: true in group_vars to provision)
-    gondola_ctid: 120                  # its own isolated LXC (public-facing + scrapes the web)
-    gondola_lxc_ip: 192.168.x.x        # static IP (VLAN10, e.g. .10.20)
-    gondola_lxc_gw: 192.168.x.1        # same gateway as the docker LXC
+    # App LXC (OPT-IN — set app_lxc_enabled: true in group_vars). A bare docker-capable LXC that
+    # an app's own repo provisions on top of (currently gondola.uy). Homelab owns only the LXC.
+    app_lxc_ctid: 120                  # its own isolated LXC (public-facing app + scrapes the web)
+    app_lxc_hostname: gondola
+    app_lxc_ip: 192.168.x.x            # static IP (VLAN10, e.g. .10.20)
+    app_lxc_gw: 192.168.x.1            # same gateway as the docker LXC
 
     # docker stack source (this repo, synced to the LXC)
     compose_src: "../docker"

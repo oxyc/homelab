@@ -1,0 +1,22 @@
+---
+# Generic "isolated, docker-capable app LXC" — the Proxmox layer only. The APP that runs inside
+# (docker, runner, .env, deploy, app-data backup) is owned by that app's own repo, so this role
+# carries ZERO app specifics. Today it hosts gondola.uy; the app's repo turns the bare LXC into a
+# running host via its own portable provisioner (see docs/gondola.md).
+#
+# Opt-in: only provisioned when true.
+app_lxc_enabled: false
+
+app_lxc_hostname: app
+# Guest id + network (set the real values in inventory).
+app_lxc_ctid: 120
+# app_lxc_ip / app_lxc_gw come from inventory.
+
+# Sizing.
+app_lxc_cores: 2
+app_lxc_memory: 3072
+app_lxc_disk_gb: 20
+
+# Host-level backup (Proxmox vzdump -> nvr). App-data offsite backup is the app's own concern.
+app_lxc_backup_schedule: "daily 04:30"
+app_lxc_backup_keep: 7
