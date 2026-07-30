@@ -37,7 +37,7 @@
   changed_when: false
   no_log: true
 
-- name: "Register {{ gondola_runner_count }} runner instance(s)"
+- name: Register the self-hosted runner instances
   ansible.builtin.include_tasks:
     file: register_runner.yml
     # Explicit so the dynamically-included tasks also run inside the LXC (not just the include task).

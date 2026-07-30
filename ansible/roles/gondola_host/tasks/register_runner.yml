@@ -1,7 +1,7 @@
 # Register ONE self-hosted runner instance (looped from runner.yml over gondola_runner_count).
 # `item` is the instance index. Each runner needs its own directory + systemd service so N can
 # run concurrently — restoring the CI parallelism the single-runner setup would have serialised.
-- name: "runner {{ item }}: directory"
+- name: Runner directory — instance {{ item }}
   ansible.builtin.file:
     path: "/opt/actions-runner-{{ item }}"
     state: directory
@@ -9,7 +9,7 @@
     group: runner
     mode: "0755"
 
-- name: "runner {{ item }}: extract the (shared) runner tarball"
+- name: Extract the shared runner tarball — instance {{ item }}
   ansible.builtin.unarchive:
     src: /opt/actions-runner.tar.gz
     dest: "/opt/actions-runner-{{ item }}"
@@ -18,12 +18,12 @@
     group: runner
     creates: "/opt/actions-runner-{{ item }}/config.sh"
 
-- name: "runner {{ item }}: already configured?"
+- name: Check whether the runner is already configured — instance {{ item }}
   ansible.builtin.stat:
     path: "/opt/actions-runner-{{ item }}/.runner"
   register: runner_cfg
 
-- name: "runner {{ item }}: configure (unique name, shared labels)"
+- name: Configure the runner with a unique name + shared labels — instance {{ item }}
   ansible.builtin.command:
     cmd: >-
       ./config.sh --unattended --replace
@@ -39,7 +39,7 @@
   changed_when: true
   no_log: true
 
-- name: "runner {{ item }}: install + start as a systemd service"
+- name: Install + start the runner systemd service — instance {{ item }}
   ansible.builtin.command:
     cmd: "{{ svc_cmd }}"
     chdir: "/opt/actions-runner-{{ item }}"
