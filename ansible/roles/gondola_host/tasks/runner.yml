@@ -72,6 +72,7 @@
   become: true
   become_user: runner
   when: not runner_cfg.stat.exists
+  changed_when: true
   no_log: true
 
 - name: Install + start the runner as a systemd service
