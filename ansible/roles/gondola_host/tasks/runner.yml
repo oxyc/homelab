@@ -1,12 +1,11 @@
-# Self-hosted GitHub Actions runner INSIDE the gondola LXC, labelled `grocery-tracker-deploy`
-# to match the repo's existing deploy/ops-health jobs. This is the cost fix: private-repo
-# Actions minutes are limited/paid, and the app's CI + image-build currently burn them on
-# `ubuntu-latest`. Flipping those jobs to `self-hosted` (see docs/gondola.md) makes ALL of
-# CI + build + deploy run here for free — and deploy is already `docker compose pull/up` local
-# to the runner, so it lands straight in this LXC.
+# Self-hosted GitHub Actions runner(s) INSIDE the gondola LXC, labelled `grocery-tracker-deploy`
+# to match the repo's existing jobs. This is the cost fix: it moves CI + image-build off paid
+# `ubuntu-latest` onto your box, and deploy is already `docker compose pull/up` local to the
+# runner. gondola_runner_count runners are registered so CI jobs that used to run in parallel on
+# ubuntu-latest still do (a single runner would serialise them).
 #
-# SECURITY: self-hosted runners are only safe on a PRIVATE repo (untrusted fork PRs must never
-# run on your home network). When gondola goes PUBLIC, move CI/PR jobs BACK to `ubuntu-latest`
+# SECURITY: self-hosted runners are only safe on a PRIVATE repo — untrusted fork PRs must never
+# run on your home network. When gondola goes PUBLIC, move CI/PR jobs BACK to `ubuntu-latest`
 # (free + unlimited for public repos) and keep ONLY deploy self-hosted, environment-gated.
 - name: Create the runner user (in the docker group so deploy jobs can compose up)
   ansible.builtin.user:
@@ -16,37 +15,16 @@
     create_home: true
     shell: /bin/bash
 
-- name: Runner directory
-  ansible.builtin.file:
-    path: /opt/actions-runner
-    state: directory
-    owner: runner
-    group: runner
-    mode: "0755"
-
-- name: Download the Actions runner (pinned)
+- name: Download the Actions runner tarball once (shared by all instances)
   ansible.builtin.get_url:
     url: "https://github.com/actions/runner/releases/download/v{{ gondola_runner_version }}/actions-runner-linux-x64-{{ gondola_runner_version }}.tar.gz"
-    dest: /opt/actions-runner/runner.tar.gz
-    mode: "0644"
-  register: runner_dl
-
-- name: Extract the runner
-  ansible.builtin.unarchive:
-    src: /opt/actions-runner/runner.tar.gz
-    dest: /opt/actions-runner
-    remote_src: true
+    dest: /opt/actions-runner.tar.gz
     owner: runner
     group: runner
-    creates: /opt/actions-runner/config.sh
+    mode: "0644"
 
-# Registration tokens expire after ~1h, so mint a fresh one at run time from a PAT
-# (gondola_gh_pat, from .env — repo `administration` scope). Only needed when unconfigured.
-- name: Check whether the runner is already configured
-  ansible.builtin.stat:
-    path: /opt/actions-runner/.runner
-  register: runner_cfg
-
+# Registration tokens expire after ~1h but can register multiple runners within that window, so
+# mint one and reuse it across the loop. From a PAT (gondola_gh_pat, .env — repo `administration`).
 - name: Mint a runner registration token
   ansible.builtin.uri:
     url: "https://api.github.com/repos/{{ gondola_repo }}/actions/runners/registration-token"
@@ -56,30 +34,13 @@
       Accept: application/vnd.github+json
     status_code: [201]
   register: reg_token
-  when: not runner_cfg.stat.exists
+  changed_when: false
   no_log: true
 
-- name: Configure the runner (labels match the repo's deploy jobs)
-  ansible.builtin.command:
-    cmd: >-
-      ./config.sh --unattended --replace
-      --url https://github.com/{{ gondola_repo }}
-      --token {{ reg_token.json.token }}
-      --name gondola-homelab
-      --labels grocery-tracker-deploy,homelab
-      --work _work
-    chdir: /opt/actions-runner
-  become: true
-  become_user: runner
-  when: not runner_cfg.stat.exists
-  changed_when: true
-  no_log: true
-
-- name: Install + start the runner as a systemd service
-  ansible.builtin.command:
-    cmd: "{{ item }}"
-    chdir: /opt/actions-runner
-  loop:
-    - ./svc.sh install runner
-    - ./svc.sh start
-  changed_when: true
+- name: "Register {{ gondola_runner_count }} runner instance(s)"
+  ansible.builtin.include_tasks:
+    file: register_runner.yml
+    # Explicit so the dynamically-included tasks also run inside the LXC (not just the include task).
+    apply:
+      delegate_to: "{{ gondola_lxc_ip }}"
+  loop: "{{ range(1, gondola_runner_count | int + 1) | list }}"

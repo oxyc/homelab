@@ -31,4 +31,10 @@
       # this isolated LXC).
       CLOUDFLARE_TUNNEL_TOKEN={{ lookup('ansible.builtin.env', 'GONDOLA_TUNNEL_TOKEN') }}
       ANTHROPIC_API_KEY={{ lookup('ansible.builtin.env', 'GONDOLA_ANTHROPIC_KEY') }}
+      # Offsite backup target (Cloudflare R2 / B2). Reuses the homelab RESTIC_PASSWORD but its own
+      # repo path so gondola snapshots are separate from the HA repo.
+      RESTIC_REPOSITORY={{ lookup('ansible.builtin.env', 'GONDOLA_RESTIC_REPOSITORY') }}
+      RESTIC_PASSWORD={{ lookup('ansible.builtin.env', 'RESTIC_PASSWORD') }}
+      AWS_ACCESS_KEY_ID={{ lookup('ansible.builtin.env', 'AWS_ACCESS_KEY_ID') }}
+      AWS_SECRET_ACCESS_KEY={{ lookup('ansible.builtin.env', 'AWS_SECRET_ACCESS_KEY') }}
   no_log: true

@@ -1,0 +1,51 @@
+# Register ONE self-hosted runner instance (looped from runner.yml over gondola_runner_count).
+# `item` is the instance index. Each runner needs its own directory + systemd service so N can
+# run concurrently — restoring the CI parallelism the single-runner setup would have serialised.
+- name: "runner {{ item }}: directory"
+  ansible.builtin.file:
+    path: "/opt/actions-runner-{{ item }}"
+    state: directory
+    owner: runner
+    group: runner
+    mode: "0755"
+
+- name: "runner {{ item }}: extract the (shared) runner tarball"
+  ansible.builtin.unarchive:
+    src: /opt/actions-runner.tar.gz
+    dest: "/opt/actions-runner-{{ item }}"
+    remote_src: true
+    owner: runner
+    group: runner
+    creates: "/opt/actions-runner-{{ item }}/config.sh"
+
+- name: "runner {{ item }}: already configured?"
+  ansible.builtin.stat:
+    path: "/opt/actions-runner-{{ item }}/.runner"
+  register: runner_cfg
+
+- name: "runner {{ item }}: configure (unique name, shared labels)"
+  ansible.builtin.command:
+    cmd: >-
+      ./config.sh --unattended --replace
+      --url https://github.com/{{ gondola_repo }}
+      --token {{ reg_token.json.token }}
+      --name gondola-homelab-{{ item }}
+      --labels grocery-tracker-deploy,homelab
+      --work _work
+    chdir: "/opt/actions-runner-{{ item }}"
+  become: true
+  become_user: runner
+  when: not runner_cfg.stat.exists
+  changed_when: true
+  no_log: true
+
+- name: "runner {{ item }}: install + start as a systemd service"
+  ansible.builtin.command:
+    cmd: "{{ svc_cmd }}"
+    chdir: "/opt/actions-runner-{{ item }}"
+  loop:
+    - ./svc.sh install runner
+    - ./svc.sh start
+  loop_control:
+    loop_var: svc_cmd
+  changed_when: true
