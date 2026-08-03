@@ -1,0 +1,50 @@
+# Lightweight resource history on the Proxmox host. sysstat's collector (sadc)
+# runs for a few milliseconds on a systemd timer, appends CPU/RAM/disk/net
+# samples to /var/log/sysstat/, then exits — no resident daemon, no ports, no
+# network. Review any past window with `sar` / `sadf`. Host-only by design.
+
+- name: Install sysstat
+  ansible.builtin.apt:
+    name: sysstat
+    state: present
+
+- name: Enable collection (Debian gates it behind this flag)
+  ansible.builtin.lineinfile:
+    path: /etc/default/sysstat
+    regexp: '^ENABLED='
+    line: 'ENABLED="true"'
+
+- name: Set log retention in days
+  ansible.builtin.lineinfile:
+    path: /etc/sysstat/sysstat
+    regexp: '^HISTORY='
+    line: "HISTORY={{ sysstat_history_days }}"
+
+- name: Ensure the collect-timer drop-in dir exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/sysstat-collect.timer.d
+    state: directory
+    mode: "0755"
+
+- name: Tighten sampling cadence so short spikes aren't averaged away
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/sysstat-collect.timer.d/override.conf
+    content: |
+      # Managed by Ansible (sysstat role). The packaged timer samples every
+      # 10 min, which smooths peaks out; sample every {{ sysstat_collect_interval_min }} min instead.
+      [Timer]
+      OnCalendar=
+      OnCalendar=*:00/{{ sysstat_collect_interval_min }}
+    mode: "0644"
+  notify: restart sysstat collect timer
+
+- name: Enable + start the collector and summary timers (and the boot marker)
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop:
+    - sysstat.service
+    - sysstat-collect.timer
+    - sysstat-summary.timer
