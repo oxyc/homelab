@@ -1,8 +1,0 @@
-# sysstat (sar) — lightweight historical resource metrics on the host.
-# A timer-driven sampler: no daemon, no listening ports, no network calls. It
-# records CPU / RAM / disk / network every few minutes into /var/log/sysstat/,
-# reviewable later with `sar`. Host-level only by design — guests self-provision
-# (see the app_lxc boundary), so this never reaches into a container.
-sysstat_history_days: 14           # days of saDD logs to keep (~single-digit MB/day)
-sysstat_collect_interval_min: 2    # sampling cadence, minutes. Package default is 10,
-                                   # which averages peaks away; 2 keeps short spikes.

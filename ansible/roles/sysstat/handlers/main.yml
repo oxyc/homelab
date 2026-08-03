@@ -1,7 +1,0 @@
-# Reload unit files and restart the timer so a changed OnCalendar takes effect
-# (a running timer keeps its old schedule until restarted).
-- name: restart sysstat collect timer
-  ansible.builtin.systemd:
-    name: sysstat-collect.timer
-    state: restarted
-    daemon_reload: true
