@@ -278,6 +278,27 @@
   when: longevity_sysctl is changed
   changed_when: true
 
+# rrdcached flushes PVE graph RRDs every 5min by default and is the top host-daemon SSD writer.
+# PVE runs it as a bare `rrdcached -g` (it does NOT source /etc/default/rrdcached), so batch the
+# flush via a systemd drop-in: 5min → 30min. Tradeoff: up to ~30min of recent graph datapoints
+# lost on an unclean reboot — fine for a home node.
+- name: Batch rrdcached flushes (30min) to cut SSD writes
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/rrdcached.service.d/override.conf
+    mode: "0644"
+    content: |
+      [Service]
+      ExecStart=
+      ExecStart=/usr/bin/rrdcached -g -w 1800 -z 1800 -f 3600
+  register: rrdcached_override
+
+- name: Reload + restart rrdcached to apply the flush batching
+  ansible.builtin.systemd:
+    name: rrdcached.service
+    daemon_reload: true
+    state: restarted
+  when: rrdcached_override is changed
+
 - name: Disable swap in fstab so there are no swap-out writes to the SSD
   ansible.builtin.replace:
     path: /etc/fstab
