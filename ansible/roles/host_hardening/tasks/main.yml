@@ -252,3 +252,61 @@
   ansible.builtin.command: systemctl daemon-reexec
   when: wd_conf is changed
   changed_when: true
+
+# ── Longevity: minimize writes to the budget SSD + let the box idle ──────────
+# The Kingston SA400 (SATA) holds boot + every CT disk + the gondola DB and is the
+# only real write sink; the 16 GiB of RAM sits ~2/3 free. Cut discretionary writes
+# and stop daemons that back nothing on this single, VM-less, ZFS-less, NFS-less node.
+- name: Lower swappiness — defer swap-out (RAM is ample)
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/99-longevity.conf
+    mode: "0644"
+    content: |
+      # Budget SATA SSD holds boot+CTs+DB; RAM is ample. Minimize discretionary writes.
+      vm.swappiness = 10
+  register: longevity_sysctl
+
+- name: Apply the sysctl drop-in now
+  ansible.builtin.command: sysctl --system
+  when: longevity_sysctl is changed
+  changed_when: true
+
+- name: Disable swap in fstab so there are no swap-out writes to the SSD
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^(\s*/dev/pve/swap\s+.*\bswap\b.*)$'
+    replace: '# \1  # disabled: avoid SSD swap writes (ample RAM)'
+  register: swap_off
+
+- name: Turn swap off now
+  ansible.builtin.command: swapoff -a
+  when: swap_off is changed
+  changed_when: true
+
+- name: Add noatime to the root mount (drop atime write-backs on the wear-limited SSD)
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^(/dev/pve/root\s+/\s+ext4\s+)errors=remount-ro'
+    replace: '\1noatime,errors=remount-ro'
+  register: root_noatime
+
+- name: Remount / with noatime now
+  ansible.builtin.command: mount -o remount,noatime /
+  when: root_noatime is changed
+  changed_when: true
+
+# No VM (spiceproxy/qmeventd are kept for when HAOS returns), no ZFS pool, no NFS
+# mount, no KSM benefit at 16 GiB — these daemons run for nothing. Re-enable
+# rpcbind/nfs-blkmap if backups ever move to NFS; ksmtuned if a VM makes KSM worthwhile.
+- name: Mask host daemons with no backing resource
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    masked: true
+    state: stopped
+    enabled: false
+  loop:
+    - zfs-zed.service
+    - rpcbind.service
+    - rpcbind.socket
+    - nfs-blkmap.service
+    - ksmtuned.service
