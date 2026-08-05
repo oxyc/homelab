@@ -100,7 +100,9 @@
       content: |
         [Timer]
         OnBootSec=3min
-        OnUnitActiveSec=30min
+        # 4h, not 30min: the sync is content-aware (only restarts atlas on a real change),
+        # so frequent polls are near-always no-op wakes. Wider interval = more idle.
+        OnUnitActiveSec=4h
         [Install]
         WantedBy=timers.target
   when: "'atlas' in compose_profiles and not molecule_test"

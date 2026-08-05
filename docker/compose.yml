@@ -212,6 +212,10 @@ services:
     profiles: ["embed"]
     environment:
       PORT: "8080"
+      # Unload the ~750 MB bge-m3 model after this many idle seconds, lazy-reloading it
+      # on the next request (~5-15 s cold start). This addon is idle most of the day, so
+      # it drops resident RAM to the Python+cache baseline. 0 = always-warm.
+      DEN_EMBED_IDLE_UNLOAD_SEC: ${DEN_EMBED_IDLE_UNLOAD_SEC:-600}
     security_opt: ["no-new-privileges:true"]
     cap_drop: ["ALL"]
     mem_limit: 1536m                  # measured ~900MiB resident after a query; ~1.7x headroom
