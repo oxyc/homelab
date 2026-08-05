@@ -86,6 +86,7 @@ services:
     container_name: trailer-service
     restart: unless-stopped
     profiles: ["trailers"]
+    labels: ["com.centurylinklabs.watchtower.enable=true"]   # opt into watchtower auto-updates
     environment:
       # Sealed config-in-URL: with REEL_CONFIG_KEY set, /configure seals the user's BYOK TMDB key into
       # the install URL, so no discovery key lives on the server. Unset = sealing off, TMDB_KEY below is
@@ -120,8 +121,10 @@ services:
     container_name: den-scout
     restart: unless-stopped
     profiles: ["scout"]
+    labels: ["com.centurylinklabs.watchtower.enable=true"]   # opt into watchtower auto-updates
     environment:
       PORT: "8080"
+      GOMEMLIMIT: "230MiB"   # keep in sync with mem_limit (den-scout/DEPLOY.md)
       SCOUT_SCRAPE_TIMEOUT_MS: "${SCOUT_SCRAPE_TIMEOUT_MS:-8000}"
       SCOUT_LIST_TTL_SECONDS: "${SCOUT_LIST_TTL_SECONDS:-300}"
       SCOUT_MEDIAFUSION_URL: "${SCOUT_MEDIAFUSION_URL:-}"   # base incl. its encrypted-config segment
@@ -154,6 +157,7 @@ services:
     container_name: den-atlas
     restart: unless-stopped
     profiles: ["atlas"]
+    labels: ["com.centurylinklabs.watchtower.enable=true"]   # opt into watchtower auto-updates
     environment:
       PORT: "8080"
       # Semantic search: atlas proxies query text to den-embed at POST /embed. Empty = /embed 503s.
@@ -183,6 +187,7 @@ services:
     container_name: den-subtitles
     restart: unless-stopped
     profiles: ["subtitles"]
+    labels: ["com.centurylinklabs.watchtower.enable=true"]   # opt into watchtower auto-updates
     environment:
       PORT: "8093"
       # Sealed config-in-URL: set SUBS_CONFIG_KEY and /configure seals the BYOK OpenSubtitles + LLM keys
@@ -210,6 +215,7 @@ services:
     container_name: den-embed
     restart: unless-stopped
     profiles: ["embed"]
+    labels: ["com.centurylinklabs.watchtower.enable=true"]   # opt into watchtower auto-updates
     environment:
       PORT: "8080"
       # Unload the ~750 MB bge-m3 model after this many idle seconds, lazy-reloading it
@@ -219,6 +225,22 @@ services:
     security_opt: ["no-new-privileges:true"]
     cap_drop: ["ALL"]
     mem_limit: 1536m                  # measured ~900MiB resident after a query; ~1.7x headroom
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  # --- watchtower: auto-updates the containers labelled com.centurylinklabs.watchtower.enable=true
+  # (the den services above). --label-enable = opt-in only, so frigate/scrypted are NOT auto-updated.
+  # 6h poll; --cleanup drops the superseded image. Opt in: `docker compose --profile watchtower up -d`.
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower
+    restart: unless-stopped
+    profiles: ["watchtower"]
+    command: --label-enable --cleanup --interval ${WATCHTOWER_INTERVAL:-21600}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    security_opt: ["no-new-privileges:true"]
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
