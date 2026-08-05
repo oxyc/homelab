@@ -257,13 +257,20 @@
 # The Kingston SA400 (SATA) holds boot + every CT disk + the gondola DB and is the
 # only real write sink; the 16 GiB of RAM sits ~2/3 free. Cut discretionary writes
 # and stop daemons that back nothing on this single, VM-less, ZFS-less, NFS-less node.
-- name: Lower swappiness — defer swap-out (RAM is ample)
+- name: Lower swappiness + batch writeback — cut discretionary writes to the SSD
   ansible.builtin.copy:
     dest: /etc/sysctl.d/99-longevity.conf
     mode: "0644"
     content: |
       # Budget SATA SSD holds boot+CTs+DB; RAM is ample. Minimize discretionary writes.
       vm.swappiness = 10
+      # Write-batching (audit 2026-08): wake the writeback thread 3x less often and let dirty
+      # pages age longer, so log/RRD/misc writes coalesce into fewer, larger flushes. DB durability
+      # is unaffected — SQLite WAL fsyncs bypass these. Worst case on hard power-off: ~60s of
+      # non-fsync'd data (the iTCO watchdog covers hangs). laptop_mode aligns writeback with other I/O.
+      vm.dirty_writeback_centisecs = 1500
+      vm.dirty_expire_centisecs = 6000
+      vm.laptop_mode = 5
   register: longevity_sysctl
 
 - name: Apply the sysctl drop-in now
