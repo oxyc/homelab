@@ -338,3 +338,49 @@
     - rpcbind.socket
     - nfs-blkmap.service
     - ksmtuned.service
+
+# --- PVE host firewall: lock the management plane to trusted sources (defense-in-depth) ---
+# The hypervisor's control plane (web UI :8006, SSH :22, VM/CT consoles :5900-5999, SPICE :3128) is
+# reachable ONLY from Tailscale + the mgmt LAN; DROP from everything else. Guests are deliberately NOT
+# firewalled here — their exposure is segmented at the network layer (Omada VLANs). The payoff lands at
+# Punta Ballena: set firewall_mgmt_cidr to the Main VLAN and a popped camera/IoT device on VLAN30/40
+# can't even reach the hypervisor. `-i tailscale0` is always allowed so a bad rule can't lock you out.
+- name: PVE firewall binary present (skip these on non-PVE hosts)
+  ansible.builtin.stat:
+    path: /usr/bin/pve-firewall
+  register: pve_firewall_bin
+
+- name: Enable the PVE firewall framework (datacenter; guests unaffected)
+  ansible.builtin.copy:
+    dest: /etc/pve/firewall/cluster.fw
+    mode: "0640"
+    content: |
+      [OPTIONS]
+      enable: 1
+      policy_in: ACCEPT
+      policy_out: ACCEPT
+  when: pve_firewall_bin.stat.exists
+  notify: Restart pve-firewall
+
+- name: Lock the PVE host control plane to Tailscale + the mgmt LAN
+  ansible.builtin.copy:
+    dest: "/etc/pve/nodes/{{ pve_node_name | default('pve') }}/host.fw"
+    mode: "0640"
+    content: |
+      [OPTIONS]
+      enable: 1
+
+      [RULES]
+      IN ACCEPT -i tailscale0 # remote admin over Tailscale (anti-lockout — never remove)
+      IN ACCEPT -source {{ firewall_tailscale_cidr | default('100.64.0.0/10') }} # Tailscale CGNAT range
+      IN ACCEPT -p icmp # ping/diagnostics
+      IN ACCEPT -source {{ firewall_mgmt_cidr }} -p tcp -dport 8006 # PVE web UI
+      IN ACCEPT -source {{ firewall_mgmt_cidr }} -p tcp -dport 22 # SSH
+      IN ACCEPT -source {{ firewall_mgmt_cidr }} -p tcp -dport 5900:5999 # noVNC/CT+VM console
+      IN ACCEPT -source {{ firewall_mgmt_cidr }} -p tcp -dport 3128 # SPICE
+      IN DROP -p tcp -dport 8006
+      IN DROP -p tcp -dport 22
+      IN DROP -p tcp -dport 5900:5999
+      IN DROP -p tcp -dport 3128
+  when: pve_firewall_bin.stat.exists
+  notify: Restart pve-firewall

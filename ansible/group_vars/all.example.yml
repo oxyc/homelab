@@ -30,3 +30,9 @@ pve_api_password: "{{ lookup('ansible.builtin.env', 'PVE_PASSWORD') }}"   # root
 # Advertise the home LAN so the phone reaches HA/Frigate/cameras through the host
 # (the single "way in"). Set to your real LAN CIDR; approve via tailscale/acl.hujson.
 ts_advertise_routes: "192.168.10.0/24"
+
+# host_hardening PVE firewall — which subnet may reach the hypervisor control plane
+# (:8006 / SSH / VM+CT consoles / SPICE). Tailscale is always allowed regardless. Set this to the
+# TRUSTED management subnet: Punta Ballena = the Main VLAN (192.168.10.0/24) so Cameras/IoT/Guest
+# VLANs can never reach the box. Today (flat LAN) set it to your current /24 in the real all.yml.
+firewall_mgmt_cidr: "192.168.10.0/24"

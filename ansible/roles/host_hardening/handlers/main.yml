@@ -12,3 +12,7 @@
   ansible.builtin.service:
     name: smartd
     state: restarted
+
+- name: Restart pve-firewall
+  ansible.builtin.command: pve-firewall restart
+  changed_when: true
