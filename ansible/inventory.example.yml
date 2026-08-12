@@ -1,27 +1,33 @@
-# Copy to inventory.yml (gitignored) and fill in. For the nested-Proxmox dress
-# rehearsal, just point pve_host at the test VM's IP.
+# Copy to inventory.yml (gitignored) and fill in. The host is plain Debian + Incus; the tailnet
+# name is still `pve` for historical reasons (it is NOT Proxmox anymore).
 all:
   hosts:
     pve:
-      ansible_host: 192.168.x.x        # Proxmox host
+      ansible_host: 192.168.x.x        # the Debian + Incus host
       ansible_user: root
   vars:
     # storage
-    nvr_disk_device: /dev/nvme0n1      # 2TB NVMe -> ext4 -> /mnt/nvr
+    nvr_disk_device: /dev/nvme0n1      # 2TB NVMe -> ext4 -> /mnt/nvr (recordings + `incus export` target)
     nvr_mount: /mnt/nvr
+    # Incus storage/network default to the values in incus_host/defaults (lvm-thin pool `default`
+    # on VG `pve`/thinpool `data`, bridge `vmbr0`). Override here only if your layout differs:
+    # incus_vg: pve
+    # incus_thinpool: data
+    # incus_bridge: vmbr0
 
-    # guests
-    haos_vmid: 100
-    docker_ctid: 110                   # privileged LXC for the Docker stack
-    docker_lxc_ip: 192.168.x.x         # static IP given to the LXC (VLAN10, e.g. .10.10)
-    docker_lxc_gw: 192.168.x.1         # VLAN10 gateway (+ DNS) for the LXC
+    # app container (OPT-IN — set app_enabled: true in group_vars). A bare podman-capable Incus
+    # container an app's own repo provisions on top of (currently gondola.uy). den is provisioned
+    # the same way from its own repo. Homelab owns only the container shell.
+    app_name: gondola
+    app_ip: ""                         # empty = DHCP (gondola is reached via its Cloudflare tunnel)
+    app_gw: 192.168.x.1                # LAN gateway (only used when app_ip is set, e.g. den)
 
-    # App LXC (OPT-IN — set app_lxc_enabled: true in group_vars). A bare docker-capable LXC that
-    # an app's own repo provisions on top of (currently gondola.uy). Homelab owns only the LXC.
-    app_lxc_ctid: 120                  # its own isolated LXC (public-facing app + scrapes the web)
-    app_lxc_hostname: gondola
-    app_lxc_ip: 192.168.x.x            # static IP (VLAN10, e.g. .10.20)
-    app_lxc_gw: 192.168.x.1            # same gateway as the docker LXC
+    # FUTURE camera stack (cameras_enabled) — an Incus container w/ iGPU passthrough (Frigate/
+    # Scrypted/Caddy) + Home Assistant OS as an Incus VM. Not deployed on this box yet.
+    haos_vmname: haos
+    docker_ctname: cameras             # Incus container name for the camera stack
+    docker_lxc_ip: 192.168.x.x         # static LAN IP for the camera container (VLAN10, e.g. .10.10)
+    docker_lxc_gw: 192.168.x.1         # its gateway (+ DNS)
 
-    # docker stack source (this repo, synced to the LXC)
+    # docker stack source (this repo, synced into the camera container)
     compose_src: "../docker"

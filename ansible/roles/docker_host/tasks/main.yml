@@ -1,40 +1,44 @@
-# docker_host: create the LXC (real runs only) then deploy the compose stack.
-# The stack-deploy half is what the molecule scenario exercises.
-- name: Create + prepare the Docker LXC
-  ansible.builtin.import_tasks: create_lxc.yml
-  when: not molecule_test            # needs a real Proxmox API; skipped under molecule
-
-- name: Deploy the compose stack
-  ansible.builtin.import_tasks: deploy_stack.yml
-
-# Weekly vzdump of the Docker LXC -> the nvr disk (a SEPARATE physical drive, so a
-# boot-SSD death doesn't take the backups with it). Snapshot mode = ~no downtime.
-# The container is ~4.5GB compressed; keep-last=2 (latest + one fallback) is plenty —
-# the container is largely reproducible (GHCR images, compose, re-syncable dataset),
-# so deep history buys little. The one fallback covers "a backup ran right after a break".
-# Recovery after a boot-SSD failure: reinstall PVE -> re-run this playbook -> the nvr
-# disk survives -> `pct restore {{ docker_ctid }} /mnt/nvr/dump/vzdump-lxc-*.tar.zst
-# --storage local-lvm` -> redeploy the stack. (Camera footage on nvr is NOT backed up
-# by design — it's disposable.)
-- name: Weekly vzdump of the Docker LXC -> nvr (real runs only)
+# FUTURE (cameras_enabled): the camera stack (Frigate + Scrypted + Caddy) as an UNPRIVILEGED Incus
+# container with an Incus `gpu` device for QuickSync. NOT deployed on this box yet and not yet
+# validated on Incus. Under Proxmox this was planned as a privileged LXC sharing /dev/dri; under
+# Incus it's a nested (podman/docker) container plus `incus config device add cameras gpu gpu` —
+# cleaner and safer (unprivileged). Backups are `incus export` (see incus_app/backup.yml), NOT vzdump.
+#
+# This is a skeleton: it stands up the container shell + gpu + nvr mount. Wiring the compose stack
+# (sync ../docker, docker compose up) mirrors the app-repo self-provision pattern and is left as a
+# TODO to fill in when the cameras are actually deployed and validated on the hardware.
+- name: Check if the camera container exists
+  ansible.builtin.command: "incus list {{ docker_ctname }} --format csv -c n"
+  register: cam_exists
+  changed_when: false
   when: not molecule_test
-  block:
-    - name: Read existing PVE backup jobs
-      ansible.builtin.command: pvesh get /cluster/backup --output-format json
-      register: pve_backup_jobs
-      changed_when: false
 
-    - name: Create the weekly vzdump job when one for this CT is not already registered
-      ansible.builtin.command: >-
-        pvesh create /cluster/backup
-        --schedule "sun 03:00"
-        --storage nvr
-        --vmid {{ docker_ctid }}
-        --mode snapshot
-        --compress zstd
-        --prune-backups keep-last=2
-        --notes-template "{% raw %}{{guestname}}{% endraw %} weekly (Ansible)"
-        --enabled 1
-        --comment "weekly Docker LXC ({{ docker_ctid }}) -> nvr"
-      when: ('"vmid":"' ~ docker_ctid ~ '"') not in pve_backup_jobs.stdout
-      changed_when: true
+- name: Create the camera container (nested, autostart)
+  ansible.builtin.command: >-
+    incus launch images:debian/13 {{ docker_ctname }}
+    -c security.nesting=true
+    -c security.syscalls.intercept.mknod=true
+    -c security.syscalls.intercept.setxattr=true
+    -c boot.autostart=true
+  when:
+    - not molecule_test
+    - docker_ctname not in cam_exists.stdout
+  changed_when: true
+
+- name: Pass the iGPU into the container (unprivileged QuickSync via an Incus gpu device)
+  ansible.builtin.command: "incus config device add {{ docker_ctname }} gpu gpu"
+  when:
+    - not molecule_test
+    - docker_ctname not in cam_exists.stdout
+  changed_when: true
+
+- name: Mount the NVR disk into the container for recordings
+  ansible.builtin.command: "incus config device add {{ docker_ctname }} nvr disk source={{ nvr_mount }} path=/mnt/nvr"
+  when:
+    - not molecule_test
+    - docker_ctname not in cam_exists.stdout
+  changed_when: true
+
+# TODO(cameras): install docker/podman inside {{ docker_ctname }}, sync ../docker (compose.yml +
+# configs), render .env, and `docker compose up` (HomeKit via compose_profiles). Mirror the
+# app-repo self-provision pattern; add an `incus export` backup timer like incus_app/backup.yml.

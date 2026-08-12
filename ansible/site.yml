@@ -1,37 +1,36 @@
 # Top-level playbook. Run phases with tags:
-#   ansible-playbook site.yml --tags host
-#   ansible-playbook site.yml --tags haos
-#   ansible-playbook site.yml --tags docker
+#   ansible-playbook site.yml --tags host        # Debian base + Incus + hardening
+#   ansible-playbook site.yml --tags app         # the podman-capable app container(s)
 #   ansible-playbook site.yml --tags backup
-# NOTE: backup/cameras reach the LXC via an add_host created in the `docker` phase, so include
-#   --tags docker when running them (or just run the full playbook). They won't run standalone.
+#   ansible-playbook site.yml --tags haos        # FUTURE (haos_enabled): HAOS as an Incus VM
+#   ansible-playbook site.yml --tags docker      # FUTURE (cameras_enabled): camera stack under Incus
 # Always dry-run first on the real box:  --check --diff
+#
+# The host is plain Debian 13 + Incus (no Proxmox). No PVE API is contacted — guests are managed
+# with the `incus` CLI over its local socket, so there are no api_host/api_password module defaults.
 
-- name: Provision homelab
+- name: Provision homelab (Debian + Incus)
   hosts: pve
   gather_facts: true
-  module_defaults:
-    community.proxmox.proxmox: &pve_api
-      api_host: "{{ pve_api_host }}"
-      api_user: "{{ pve_api_user }}"
-      api_password: "{{ pve_api_password }}"
-      validate_certs: false
-    community.proxmox.proxmox_kvm: *pve_api
   roles:
-    - role: proxmox_host       # repos, NVMe ext4 + mount, network bridges/VLAN, /dev/dri perms
+    - role: incus_host         # Debian base, Incus install + lvm-thin pool + bridged profile, NVR mount, iGPU
       tags: [host]
-    - role: host_hardening     # admin user + sudo, SSH key, sshd hardening, auto security updates
+    - role: host_hardening     # admin user + sudo, SSH key, sshd hardening, nftables lockdown, watchdog, auto-updates
       tags: [host, hardening]
     - role: tailscale          # remote SSH from phone over the tailnet
       tags: [tailscale, remote]
-    - role: haos_vm            # download + create HAOS VM (then restore HA backup manually)
+    - role: incus_app          # OPT-IN (app_enabled): a bare isolated podman-capable container (its app self-provisions)
+      tags: [app]
+      when: app_enabled | default(false)
+    - role: haos_vm            # FUTURE (haos_enabled): Home Assistant OS as an Incus KVM VM (pulls the full `incus`+qemu)
       tags: [haos]
-    - role: docker_host        # create privileged LXC, install docker, sync ../docker, compose up
-      tags: [docker]
-    - role: app_lxc            # OPT-IN (app_lxc_enabled): a bare isolated docker-capable LXC (its app self-provisions)
-      tags: [app_lxc]
-      when: app_lxc_enabled | default(false)
-    - role: restic_backup      # restic -> B2 systemd timer (HA backups + optional secrets/vzdump)
+      when: haos_enabled | default(false)
+    - role: docker_host        # FUTURE (cameras_enabled): camera stack (Frigate/Scrypted/Caddy) as an Incus container w/ gpu
+      tags: [docker, cameras]
+      when: cameras_enabled | default(false)
+    - role: restic_backup      # restic -> offsite systemd timer (HA backups) — part of the camera/HA stack
       tags: [backup]
+      when: cameras_enabled | default(false)
     - role: reolink_cameras    # encoder/NTP config via the Reolink API (run --check first)
       tags: [cameras]
+      when: cameras_enabled | default(false)

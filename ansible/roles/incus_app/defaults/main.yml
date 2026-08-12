@@ -1,0 +1,21 @@
+---
+# Generic "isolated, podman-capable app container" — the Incus layer only. The APP that runs inside
+# (podman, .env, deploy, app-data backup) is owned by that app's own repo, so this role carries ZERO
+# app specifics. Today the box hosts gondola.uy (these defaults) and den; each app's repo turns a
+# bare container into a running host via its own portable provisioner (see docs/gondola.md).
+#
+# Opt-in: only provisioned when true.
+app_enabled: false
+
+app_name: gondola
+# app_ip / app_gw come from inventory. Leave app_ip empty for a tunnel-only app (DHCP); set it for
+# an app whose clients target a fixed LAN IP (e.g. den -> 192.168.x.193).
+
+# Sizing.
+app_cores: 2
+app_memory: 3072      # MiB
+app_disk_gb: 40       # gondola's data+exports need >10G; thin-provisioned so unused space costs nothing
+
+# Host-level backup (incus export -> nvr). App-data offsite backup is the app's own concern.
+app_backup_schedule: "*-*-* 04:30:00"
+app_backup_keep: 7

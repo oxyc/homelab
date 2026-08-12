@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Pre-deploy gate (run automatically by `make deploy`): required files + keys present, no
-# placeholders, values sane, cross-file consistency, and the Proxmox answer complete.
+# placeholders, values sane, and cross-file consistency. (The host is Debian + Incus now; the
+# legacy proxmox/answer.toml check below only fires if you actually kept that unattended-install file.)
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)" || exit 1
 fail=0
@@ -29,7 +30,7 @@ if [ -f ansible/group_vars/all.yml ]; then
     < <(grep -oE '^[a-z_]+:' ansible/group_vars/all.example.yml | tr -d ':')
 fi
 if [ -f ansible/inventory.yml ]; then
-  for v in nvr_disk_device docker_ctid docker_lxc_ip docker_lxc_gw haos_vmid; do
+  for v in nvr_disk_device nvr_mount app_name; do
     grep -qE "$v" ansible/inventory.yml || bad "inventory.yml missing: $v"
   done
 fi

@@ -1,0 +1,74 @@
+# Create an isolated, PODMAN-capable Incus container with an optional static IP. Deliberately does
+# NOT install podman or anything app-specific — the app's own repo provisions the runtime on top
+# (the same provisioner it uses elsewhere), so there's one definition of "an <app> host".
+#
+# Unprivileged (public-facing / internet-scraping workloads must not have host privileges).
+# security.nesting + the two syscall intercepts allow ROOTFUL podman inside the unprivileged
+# container (the Incus equivalent of the old Proxmox `features: nesting=1,keyctl=1`). AppArmor
+# stays confined — note this only works on the Debian kernel; the proxmox kernel denied systemd's
+# unix sockets and forced `raw.lxc: lxc.apparmor.profile=unconfined`, which the migration retired.
+- name: Check if the app container exists
+  ansible.builtin.command: "incus list {{ app_name }} --format csv -c n"
+  register: app_exists
+  changed_when: false
+
+- name: Create app container ({{ app_name }}) — podman-capable, autostart, confined
+  ansible.builtin.command: >-
+    incus launch images:debian/13 {{ app_name }}
+    -c security.nesting=true
+    -c security.syscalls.intercept.mknod=true
+    -c security.syscalls.intercept.setxattr=true
+    -c boot.autostart=true
+    -c limits.cpu={{ app_cores }}
+    -c limits.memory={{ app_memory }}MiB
+  when: app_name not in app_exists.stdout
+  changed_when: true
+
+- name: Size the container root disk (thin — only uses what it needs)
+  ansible.builtin.command: "incus config device override {{ app_name }} root size={{ app_disk_gb }}GiB"
+  when: app_name not in app_exists.stdout
+  changed_when: true
+
+# Pin a static LAN IP only when app_ip is set (e.g. den, whose clients target a fixed IP). An
+# app reached solely via a Cloudflare tunnel (gondola) can stay on DHCP — leave app_ip empty.
+- name: Pin a static LAN IP inside the container (when app_ip is set)
+  ansible.builtin.command:
+    cmd: "incus exec {{ app_name }} -- tee /etc/systemd/network/eth0.network"
+    stdin: |
+      [Match]
+      Name=eth0
+      [Network]
+      Address={{ app_ip }}/24
+      Gateway={{ app_gw }}
+      DNS={{ app_gw }}
+      DNS=1.1.1.1
+  when:
+    - app_name not in app_exists.stdout
+    - app_ip | default('') | length > 0
+  changed_when: true
+
+- name: Apply the static IP
+  ansible.builtin.command: "incus exec {{ app_name }} -- systemctl restart systemd-networkd"
+  when:
+    - app_name not in app_exists.stdout
+    - app_ip | default('') | length > 0
+  changed_when: true
+
+# Just enough so the app's own provisioner can reach in (key-only SSH as root).
+- name: Bootstrap ssh + base tools inside the container (retry — net may lag boot)
+  ansible.builtin.command: >-
+    incus exec {{ app_name }} -- sh -c
+    'apt-get update -qq && apt-get install -y -qq openssh-server python3 ca-certificates curl sudo && systemctl enable --now ssh'
+  register: app_boot
+  until: app_boot.rc == 0
+  retries: 10
+  delay: 6
+  changed_when: true
+  when: app_name not in app_exists.stdout
+
+- name: Authorize the admin SSH key for root inside the container
+  ansible.builtin.command:
+    cmd: "incus exec {{ app_name }} -- sh -c 'install -d -m700 /root/.ssh && tee /root/.ssh/authorized_keys >/dev/null && chmod 600 /root/.ssh/authorized_keys'"
+    stdin: "{{ lookup('ansible.builtin.url', 'https://github.com/' + admin_github_user + '.keys', split_lines=false) }}"
+  when: app_name not in app_exists.stdout
+  changed_when: true

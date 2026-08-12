@@ -1,6 +1,7 @@
 collections:
-  - name: community.proxmox       # proxmox (LXC) + proxmox_kvm (VM) — the new home
   - name: community.general       # filesystem, modprobe, apt_repository, etc.
-  - name: community.docker        # docker_compose_v2
-  - name: ansible.posix           # mounts, sysctl
+  - name: community.docker        # docker_compose_v2 (future camera stack inside its container)
+  - name: ansible.posix           # mounts, sysctl, authorized_key
+# Incus guests are managed with the `incus` CLI over its local socket (no API collection needed).
+# community.proxmox was dropped in the Proxmox->Incus migration.
 # install:  ansible-galaxy collection install -r requirements.yml

@@ -24,7 +24,7 @@ test:           ## Prove the HomeKit toggle (docker only, no ansible)
 preflight:      ## Full local rehearsal (lint + syntax + compose + caddy + toggle)
 	./scripts/preflight.sh
 
-check-config:   ## Pre-deploy gate: required files/keys present, no placeholders, proxmox answer complete
+check-config:   ## Pre-deploy gate: required files/keys present, no placeholders, cross-file consistency
 	./scripts/check-config.sh
 
 molecule:       ## Run the docker_host role molecule test (needs molecule[docker])

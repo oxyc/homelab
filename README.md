@@ -1,20 +1,25 @@
 # homelab
 
-Single-host home server provisioned with Ansible on Proxmox:
+Single-host home server provisioned with Ansible. The host is **plain Debian 13 + [Incus](https://linuxcontainers.org/incus/)** (migrated off Proxmox VE — see `docs/decisions.md`; the tailnet name is still `pve` for historical reasons but there is no PVE control plane).
 
+**Running today** — two podman-capable Incus containers, each self-provisioned by its own repo:
+- **gondola** — the grocery-tracker app (reached via its Cloudflare tunnel)
+- **den** — Stremio addons (LAN, `192.168.x.193`)
+
+**Planned** (opt-in roles, not yet deployed on this box):
 - **Frigate** — NVR + object detection (records native H.265, no transcode)
 - **Scrypted** — HomeKit live + HomeKit Secure Video
-- **Home Assistant** — HAOS VM
+- **Home Assistant** — as an Incus KVM VM
 - **Caddy** — local HTTPS reverse proxy
 
-All secrets are externalized (env vars / `!secret` / Bitwarden), so this repo is public-safe.
+The camera stack will run as an **unprivileged Incus container with an Incus `gpu` device** (QuickSync passthrough) + HAOS as an Incus VM. All secrets are externalized (env vars / `!secret` / Bitwarden), so this repo is public-safe.
 
 ## Layout
 
 ```
-ansible/   # site.yml + roles: proxmox_host, haos_vm, docker_host, restic_backup
-docker/    # compose.yml (frigate + scrypted + caddy, shared /dev/dri) + configs
-proxmox/   # optional unattended install answer file
+ansible/   # site.yml + roles: incus_host, host_hardening, tailscale, incus_app,
+           #                    haos_vm (future), docker_host (future), restic_backup, reolink_cameras
+docker/    # compose.yml (frigate + scrypted + caddy, shared /dev/dri) + configs — for the future camera container
 ```
 
 ## Configuration
@@ -32,8 +37,9 @@ won't deploy.
 | `tailscale/acl.hujson.example` | `tailscale/acl.hujson` | your tailnet login + LAN CIDR (then paste into the Tailscale console) |
 | `proxmox/answer.toml.example` | `proxmox/answer.toml` | *(optional)* unattended install: hashed root pw + email |
 
-- Secrets never live in the Ansible files — `ts_authkey` / `pve_api_password` are `env` lookups
-  into `docker/.env`, so run `set -a; . docker/.env; set +a` before deploying.
+- Secrets never live in the Ansible files — e.g. `ts_authkey` is an `env` lookup into `docker/.env`,
+  so run `set -a; . docker/.env; set +a` before deploying. (Incus is managed over the local socket,
+  so there's no PVE API password to export anymore.)
 - Optional values you aren't using yet (e.g. `TUNNEL_TOKEN`) — **comment them out**;
   `check-config` skips commented lines.
 - Validate anytime: **`make check-config`**.
@@ -64,20 +70,21 @@ you don't have): `make hooks`. The same checks run in GitHub Actions on every pu
 
 ## Access
 
-Real IPs live only in `docker/.env` (`PROXMOX_IP`, `HAOS_IP`, `SCRYPTED_HOST`) — the
-placeholders below stand in for them. `pve` is the Tailscale MagicDNS name (the host's
-`ts_hostname`), so it resolves from any device on the tailnet with no IP to remember.
+Real IPs live only in `docker/.env` (`PROXMOX_IP` — legacy var name, now the Debian host — `HAOS_IP`,
+`SCRYPTED_HOST`) — the placeholders below stand in for them. `pve` is the Tailscale MagicDNS name (the
+host's `ts_hostname`), so it resolves from any device on the tailnet with no IP to remember.
 
-**Proxmox web UI**
+**Incus (CLI — there is no web UI)**
 
-| From | URL | Login |
-|------|-----|-------|
-| LAN | `https://<PROXMOX_IP>:8006` | `root` (Linux PAM) |
-| Tailnet (MagicDNS) | `https://pve:8006` | `root` (Linux PAM) |
-| Via Caddy (if DNS set up) | `https://pve.<CADDY_LOCAL_DOMAIN>` | `root` |
+Guests are managed over SSH with the `incus` CLI (the host runs plain Debian + Incus, no Proxmox web UI):
 
-Self-signed cert → browser warning is expected (no subscription). Optional: enable web-UI
-TOTP 2FA under *Datacenter → Permissions → Two Factor*.
+```bash
+ssh root@pve
+incus list                       # instances + IPs
+incus exec gondola -- bash       # shell into a container
+incus snapshot create den        # point-in-time snapshot (lvm-thin pool)
+incus export gondola /mnt/nvr/... # full instance backup (the vzdump replacement)
+```
 
 **SSH** — key-only after hardening (`PasswordAuthentication no`, `PermitRootLogin
 prohibit-password`). Keys are pulled from `github.com/<admin_github_user>.keys` for both
@@ -145,11 +152,15 @@ setup + HomeKit pairing. The go2rtc restreams Scrypted consumes already exist in
 
 ## Notes
 
+- Host is plain **Debian 13 + Incus** (migrated off Proxmox — `docs/decisions.md` D14). Guests are
+  **Incus containers** on an **lvm-thin** pool (snapshots via `incus snapshot`); the default profile
+  bridges each guest onto `vmbr0` so it gets a LAN IP directly.
 - ext4 (not ZFS); 16GB RAM is enough for this stack.
-- Docker-in-one-LXC shares the iGPU (QuickSync) across Frigate + Scrypted.
+- The future camera container shares the iGPU (QuickSync) across Frigate + Scrypted via an Incus
+  `gpu` device (unprivileged) — cleaner than Proxmox's privileged-LXC `/dev/dri` share.
 - CX820 main is H.265 (recorded raw); only the HomeKit path transcodes, on the iGPU.
 - Doorbell is the **Reolink PoE Video Doorbell** (2K, 4:3) — keep its main H.264 if possible (HomeKit-friendly, no transcode).
 - Scrypted camera setup and HomeKit pairing are manual (not automated).
 - Remote access: **Tailscale** on the host (`--ssh`) — SSH from your phone, no ports/keys. (`ansible/roles/tailscale`)
 - Home Assistant config-as-code under `homeassistant/` (Matter + Frigate cameras; no Zigbee). Most of it is code; Matter pairing + add-on install stay in the UI.
-- Backups: `restic` → Backblaze B2 (HA state); Proxmox `vzdump` → NVMe (local). Footage and Scrypted pairings are not backed up.
+- Backups: `restic` → Backblaze B2 (app/HA state); `incus export` → NVMe (local, the vzdump replacement). Footage and Scrypted pairings are not backed up.

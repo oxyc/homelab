@@ -1,41 +1,41 @@
-# Copy to all.yml (gitignored).
-# HomeKit/Scrypted is just a compose profile. Empty = Frigate + Caddy only (test first).
-# Add 'homekit' and re-run (make deploy) to also bring up Scrypted.
+# Copy to all.yml (gitignored). Host is Debian + Incus (no Proxmox).
+
+# --- app container (podman-capable Incus container an app self-provisions on) ---
+# Off by default. Flip true + run `ansible-playbook site.yml --tags app` to create the bare
+# container; the app's OWN repo then installs podman + secrets + deploy on top (its
+# provision-host.sh). The homelab side carries no app secrets. See docs/gondola.md.
+app_enabled: false
+
+# --- FUTURE: camera stack + Home Assistant (not deployed on this box yet) ---
+# The camera stack (Frigate/Scrypted/Caddy) will run as an UNPRIVILEGED Incus container with an
+# Incus `gpu` device (renderD128), and Home Assistant OS as an Incus KVM VM. Both are opt-in and
+# not yet validated on hardware; enabling them also requires installing the full `incus` package
+# (VM support / qemu) on the host.
+cameras_enabled: false
+haos_enabled: false
+# HomeKit/Scrypted is a compose profile inside the camera container (empty = Frigate + Caddy only).
 compose_profiles: []
-# compose_profiles: [homekit]
-
-# Bare isolated docker-capable LXC for an app to self-provision on (currently gondola.uy).
-# Off by default. Flip true + run `ansible-playbook site.yml --tags app_lxc` to create the LXC;
-# the app's OWN repo then installs docker + runner + secrets + deploy on top (its provision-host.sh).
-# The homelab side carries no app secrets — those live with the app. See docs/gondola.md.
-app_lxc_enabled: false
-
 # HAOS image to download for the VM (pin a version).
 haos_image_url: "https://github.com/home-assistant/operating-system/releases/download/14.0/haos_ova-14.0.qcow2.xz"
 
 # Tailscale auth key: NOT stored here. Read from the same .env (TS_AUTHKEY) so all
 # secrets live in one Bitwarden note. Export it before running, or pass -e ts_authkey=...
 ts_authkey: "{{ lookup('ansible.builtin.env', 'TS_AUTHKEY') }}"
-ts_hostname: pve              # tailnet node name -> `ssh root@pve`, https://pve:8006
+ts_hostname: pve              # tailnet node name -> `ssh root@pve`
 
 # Host hardening
 admin_user: oxyc
 admin_github_user: oxyc        # SSH keys auto-pulled from https://github.com/<user>.keys
-haos_ip: 192.168.x.x           # HA VM IP (VLAN10) — host alerts (smartd) POST to its webhook
+haos_ip: 192.168.x.x           # HA VM IP (future) — host alerts (smartd) POST to its webhook
 
-# Proxmox API (the proxmox/proxmox_kvm modules talk to the local PVE API)
-pve_api_host: 127.0.0.1
-pve_api_user: root@pam
-pve_api_password: "{{ lookup('ansible.builtin.env', 'PVE_PASSWORD') }}"   # root pw, from .env
 # Advertise the home LAN so the phone reaches HA/Frigate/cameras through the host
 # (the single "way in"). Set to your real LAN CIDR; approve via tailscale/acl.hujson.
 ts_advertise_routes: "192.168.10.0/24"
 
-# host_hardening host firewall — which subnet(s) may reach the hypervisor control plane
-# (:8006 / SSH / VM+CT consoles / SPICE). Tailscale is always allowed regardless. List the
-# TRUSTED management subnets: Punta Ballena = the Main VLAN (192.168.10.0/24) so Cameras/IoT/Guest
-# VLANs can never reach the box. During the move, allow BOTH the current LAN and the destination
-# Main VLAN here, then drop the Montevideo entry once the box is physically at Punta Ballena.
+# host_hardening host firewall — which subnet(s) may reach the host control plane (SSH). Tailscale
+# is always allowed regardless. List the TRUSTED management subnets: Punta Ballena = the Main VLAN
+# (192.168.10.0/24) so Cameras/IoT/Guest VLANs can never reach the box. During the move, allow BOTH
+# the current LAN and the destination Main VLAN, then drop the Montevideo entry after the move.
 firewall_mgmt_cidrs:
   - "192.168.10.0/24"   # Punta Ballena Main VLAN (permanent)
   - "192.168.x.x/24"    # TODO(move): current Montevideo LAN — remove after the move

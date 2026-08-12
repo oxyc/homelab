@@ -1,8 +1,10 @@
-# Proxmox host hardening. ORDER MATTERS: provision the admin user + SSH keys BEFORE
+# Debian host hardening. ORDER MATTERS: provision the admin user + SSH keys BEFORE
 # tightening sshd, so you never lock yourself out. (Tailscale SSH is a separate daemon and
 # stays available regardless — an extra safety net if sshd is ever misconfigured.)
+# (Was "Proxmox host hardening"; the box is now plain Debian + Incus — the PVE-specific tasks
+#  that used to live here — rrdcached/pve-firewall/pve-ha/watchdog-mux — are gone with Proxmox.)
 
-- name: Ensure sudo is installed (Proxmox/Debian base ships without it → visudo missing)
+- name: Ensure sudo is installed (minimal Debian base can ship without it → visudo missing)
   ansible.builtin.apt:
     name: sudo
     state: present
@@ -51,7 +53,7 @@
     name: unattended-upgrades
     state: present
 
-- name: Enable automatic security updates (no auto-reboot of the hypervisor)
+- name: Enable automatic security updates (no auto-reboot of the host)
   ansible.builtin.copy:
     dest: /etc/apt/apt.conf.d/20auto-upgrades
     content: |
@@ -61,7 +63,6 @@
 
 # fail2ban intentionally omitted: SSH is not internet-exposed (Tailscale-only, no port-forward),
 # so there is no public brute-force surface for it to protect.
-# Optional further hardening (manual/UI): Proxmox web-UI 2FA (TOTP), the pve-firewall.
 
 # --- stability / self-maintenance ---
 - name: Ensure the journald drop-in dir exists (not created by default)
@@ -184,33 +185,17 @@
     content: "blacklist softdog\n"
     mode: "0644"
 
-# watchdog-mux (Proxmox HA) owns /dev/watchdog but only *arms* it for HA-managed guests —
-# useless on a standalone (non-clustered) node. Free the device so systemd can own it.
-- name: Disable Proxmox HA services (standalone node; they pull in watchdog-mux)
-  ansible.builtin.systemd:
-    name: "{{ item }}"
-    enabled: false
-    state: stopped
-  loop:
-    - pve-ha-lrm
-    - pve-ha-crm
-
-- name: Mask watchdog-mux so nothing re-grabs /dev/watchdog
-  ansible.builtin.systemd:
-    name: watchdog-mux.service
-    masked: true
-
-# Proxmox ships `blacklist iTCO_wdt` in /lib/modprobe.d, so systemd-modules-load refuses it.
-# An explicit `modprobe` by name bypasses the blacklist; a tiny oneshot does that at boot
-# (upgrade-safe, unlike editing Proxmox's /lib file). systemd arms RuntimeWatchdogSec on the
-# device as soon as it appears.
-- name: Install the iTCO watchdog auto-load service (bypasses Proxmox's blacklist)
+# On plain Debian nothing blacklists iTCO_wdt, but an explicit modprobe-by-name is upgrade-safe
+# and unambiguous. A tiny oneshot loads it at boot; systemd arms RuntimeWatchdogSec on the device
+# as soon as it appears. (Under Proxmox this also had to bypass PVE's `blacklist iTCO_wdt` +
+# watchdog-mux, which grabbed /dev/watchdog for HA — both gone with Proxmox.)
+- name: Install the iTCO watchdog auto-load service
   ansible.builtin.copy:
     dest: /etc/systemd/system/hw-watchdog-load.service
     mode: "0644"
     content: |
       [Unit]
-      Description=Load iTCO hardware watchdog (explicit modprobe bypasses blacklist iTCO_wdt)
+      Description=Load iTCO hardware watchdog (explicit modprobe, upgrade-safe)
       DefaultDependencies=no
       After=systemd-modules-load.service
       Before=sysinit.target shutdown.target
@@ -221,7 +206,6 @@
       ExecStart=/sbin/modprobe iTCO_wdt
       [Install]
       WantedBy=sysinit.target
-  register: wd_load_unit
 
 - name: Enable the watchdog auto-load service + load it now
   ansible.builtin.systemd:
@@ -254,20 +238,19 @@
   changed_when: true
 
 # ── Longevity: minimize writes to the budget SSD + let the box idle ──────────
-# The Kingston SA400 (SATA) holds boot + every CT disk + the gondola DB and is the
-# only real write sink; the 16 GiB of RAM sits ~2/3 free. Cut discretionary writes
-# and stop daemons that back nothing on this single, VM-less, ZFS-less, NFS-less node.
+# The Kingston SA400 (SATA) holds boot + every container disk + the gondola DB and is the
+# only real write sink; the 16 GiB of RAM sits ~2/3 free. Cut discretionary writes.
 - name: Lower swappiness + batch writeback — cut discretionary writes to the SSD
   ansible.builtin.copy:
     dest: /etc/sysctl.d/99-longevity.conf
     mode: "0644"
     content: |
-      # Budget SATA SSD holds boot+CTs+DB; RAM is ample. Minimize discretionary writes.
+      # Budget SATA SSD holds boot+containers+DB; RAM is ample. Minimize discretionary writes.
       vm.swappiness = 10
-      # Write-batching (audit 2026-08): wake the writeback thread 3x less often and let dirty
-      # pages age longer, so log/RRD/misc writes coalesce into fewer, larger flushes. DB durability
-      # is unaffected — SQLite WAL fsyncs bypass these. Worst case on hard power-off: ~60s of
-      # non-fsync'd data (the iTCO watchdog covers hangs). laptop_mode aligns writeback with other I/O.
+      # Write-batching: wake the writeback thread 3x less often and let dirty pages age longer, so
+      # log/misc writes coalesce into fewer, larger flushes. DB durability is unaffected — SQLite
+      # WAL fsyncs bypass these. Worst case on hard power-off: ~60s of non-fsync'd data (the iTCO
+      # watchdog covers hangs). laptop_mode aligns writeback with other I/O.
       vm.dirty_writeback_centisecs = 1500
       vm.dirty_expire_centisecs = 6000
       vm.laptop_mode = 5
@@ -277,27 +260,6 @@
   ansible.builtin.command: sysctl --system
   when: longevity_sysctl is changed
   changed_when: true
-
-# rrdcached flushes PVE graph RRDs every 5min by default and is the top host-daemon SSD writer.
-# PVE runs it as a bare `rrdcached -g` (it does NOT source /etc/default/rrdcached), so batch the
-# flush via a systemd drop-in: 5min → 30min. Tradeoff: up to ~30min of recent graph datapoints
-# lost on an unclean reboot — fine for a home node.
-- name: Batch rrdcached flushes (30min) to cut SSD writes
-  ansible.builtin.copy:
-    dest: /etc/systemd/system/rrdcached.service.d/override.conf
-    mode: "0644"
-    content: |
-      [Service]
-      ExecStart=
-      ExecStart=/usr/bin/rrdcached -g -w 1800 -z 1800 -f 3600
-  register: rrdcached_override
-
-- name: Reload + restart rrdcached to apply the flush batching
-  ansible.builtin.systemd:
-    name: rrdcached.service
-    daemon_reload: true
-    state: restarted
-  when: rrdcached_override is changed
 
 - name: Disable swap in fstab so there are no swap-out writes to the SSD
   ansible.builtin.replace:
@@ -323,9 +285,8 @@
   when: root_noatime is changed
   changed_when: true
 
-# No VM (spiceproxy/qmeventd are kept for when HAOS returns), no ZFS pool, no NFS
-# mount, no KSM benefit at 16 GiB — these daemons run for nothing. Re-enable
-# rpcbind/nfs-blkmap if backups ever move to NFS; ksmtuned if a VM makes KSM worthwhile.
+# No ZFS pool, no NFS mount, no KSM benefit at 16 GiB — these daemons run for nothing.
+# Re-enable rpcbind/nfs-blkmap if backups ever move to NFS; ksmtuned if a VM makes KSM worthwhile.
 - name: Mask host daemons with no backing resource
   ansible.builtin.systemd:
     name: "{{ item }}"
@@ -338,36 +299,25 @@
     - rpcbind.socket
     - nfs-blkmap.service
     - ksmtuned.service
+  failed_when: false   # any of these may simply not be installed on a lean Debian host
 
-# --- PVE host firewall: lock the management plane to trusted sources (defense-in-depth) ---
-# The hypervisor's control plane (web UI :8006, SSH :22, VM/CT consoles :5900-5999, SPICE :3128) is
-# reachable ONLY from Tailscale + the mgmt LAN; everything else to those ports is dropped. Guests are
-# deliberately NOT firewalled here — their exposure is segmented at the network layer (Omada VLANs). The
-# payoff lands at Punta Ballena: firewall_mgmt_cidrs is the Main VLAN (drop Montevideo after the move) and a
-# popped camera/IoT device on VLAN30/40 can't even reach the hypervisor. `tailscale0` is always allowed so a
-# bad rule can't lock you out.
-#
-# Enforced with a static nftables ruleset (kernel-loaded once at boot, no resident daemon) rather than
-# pve-firewall: our rules never change at runtime, so pve-firewall's polling Perl daemon (~105 MiB + a
-# constant recompile loop) was pure overhead. We retire it below and let nftables.service own the rules.
-- name: PVE firewall binary present (gates the control-plane lockdown to the PVE host)
-  ansible.builtin.stat:
-    path: /usr/sbin/pve-firewall
-  register: pve_firewall_bin
-
+# --- Host firewall: lock the management plane to trusted sources (defense-in-depth) ---
+# The host's control plane (SSH :22) is reachable ONLY from Tailscale + the mgmt LAN; everything
+# else to those ports is dropped. Guests are deliberately NOT firewalled here — their exposure is
+# segmented at the network layer (Omada VLANs). `tailscale0` is always allowed so a bad rule can't
+# lock you out. A static nftables ruleset (kernel-loaded once at boot, no resident daemon) owns it;
+# under Proxmox this replaced pve-firewall's polling Perl daemon — that's now retired with Proxmox.
 - name: nftables package present
   ansible.builtin.apt:
     name: nftables
     state: present
-  when: pve_firewall_bin.stat.exists
 
-- name: Lock the PVE host control plane to Tailscale + the mgmt LAN (static nftables)
+- name: Lock the host control plane to Tailscale + the mgmt LAN (static nftables)
   ansible.builtin.template:
     src: nftables.conf.j2
     dest: /etc/nftables.conf
     mode: "0644"
     validate: /usr/sbin/nft -c -f %s
-  when: pve_firewall_bin.stat.exists
   notify: Reload nftables
 
 - name: Enable nftables.service (loads the lockdown ruleset at boot)
@@ -375,26 +325,3 @@
     name: nftables
     enabled: true
     state: started
-  when: pve_firewall_bin.stat.exists
-
-- name: Retire the pve-firewall daemon (nftables owns the rules now — frees ~105 MiB + its poll loop)
-  ansible.builtin.systemd:
-    name: pve-firewall
-    enabled: false
-    state: stopped
-  when: pve_firewall_bin.stat.exists
-
-- name: Disable the old pve-firewall framework (inert once the daemon is off; belt-and-suspenders)
-  ansible.builtin.copy:
-    dest: /etc/pve/firewall/cluster.fw
-    mode: "0640"
-    content: |
-      [OPTIONS]
-      enable: 0
-  when: pve_firewall_bin.stat.exists
-
-- name: Remove the superseded per-node host.fw rules
-  ansible.builtin.file:
-    path: "/etc/pve/nodes/{{ pve_node_name | default('pve') }}/host.fw"
-    state: absent
-  when: pve_firewall_bin.stat.exists

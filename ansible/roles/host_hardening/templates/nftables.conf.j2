@@ -1,10 +1,10 @@
 #!/usr/sbin/nft -f
 # {{ ansible_managed }}
-# PVE host control-plane lockdown — replaces pve-firewall (see host_hardening/tasks).
+# Host control-plane lockdown (Debian + Incus). Replaces the old pve-firewall lockdown.
 #
-# Deliberately NO `flush ruleset`: that would wipe Docker/PVE netfilter state on
-# every load. The add/delete/recreate idiom below replaces ONLY our own table,
-# atomically, so `nft -f` is idempotent and never touches anyone else's rules.
+# Deliberately NO `flush ruleset`: that would wipe Incus/podman netfilter state on every
+# load. The add/delete/recreate idiom below replaces ONLY our own table, atomically, so
+# `nft -f` is idempotent and never touches anyone else's rules.
 add table inet host_lockdown
 delete table inet host_lockdown
 table inet host_lockdown {
@@ -25,10 +25,9 @@ table inet host_lockdown {
 {% endfor %}
     ip protocol icmp accept
 
-    # Everyone else: the control plane is closed (web UI :8006, SSH :22, SPICE
-    # :3128, VM/CT consoles :5900-5999). Guests are unaffected — their exposure
-    # is segmented at the network layer (Omada VLANs).
-    tcp dport { 22, 3128, 8006 } drop
-    tcp dport 5900-5999 drop
+    # Everyone else: the host's SSH control plane is closed. Guests are unaffected —
+    # their exposure is segmented at the network layer (Omada VLANs), and Incus attaches
+    # them straight to the LAN bridge, so their published ports are their own to expose.
+    tcp dport 22 drop
   }
 }

@@ -1,0 +1,8 @@
+---
+# incus_host defaults — the Incus storage pool + bridge to (re)use.
+# The lvm-thin pool reuses the existing VG/thinpool that Proxmox left behind (so no repartition
+# was needed on migration); force_reuse lets Incus share a VG that also holds the host root/swap.
+incus_pool: default
+incus_vg: pve                  # existing LVM volume group (holds host root/swap too)
+incus_thinpool: data           # existing LVM thin pool inside {{ incus_vg }}
+incus_bridge: vmbr0            # existing bridge guests attach to (untouched by this role)

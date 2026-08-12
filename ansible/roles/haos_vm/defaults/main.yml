@@ -1,5 +1,7 @@
-# haos_vm defaults
-vm_storage: local-lvm                       # default PVE thin pool on the 512GB SSD (ext4 install)
-haos_image_dir: /var/lib/vz/template
+# haos_vm defaults (FUTURE — Home Assistant OS as an Incus VM)
+haos_vmname: haos
+haos_disk_gb: 32
+haos_image_dir: /var/lib/incus/images-staging
 haos_qcow2: "{{ haos_image_dir }}/haos.qcow2"
-# haos_image_url + haos_vmid come from group_vars / inventory
+haos_raw: "{{ haos_image_dir }}/haos.raw"
+# haos_image_url + haos_vmname come from group_vars / inventory

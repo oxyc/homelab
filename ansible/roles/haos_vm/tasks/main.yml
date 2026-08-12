@@ -1,5 +1,10 @@
-# Build the Home Assistant OS VM. HA itself is "provisioned" by restoring its backup
-# (manual onboarding). This role creates the VM shell + imports the HAOS disk robustly.
+# FUTURE (haos_enabled): Home Assistant OS as an Incus KVM VM. NOT deployed on this box yet.
+# Requires the FULL `incus` package (VM support / qemu) on the host — incus_host installs only
+# incus-base — so enable this only after `apt-get install incus` on the box. HA itself is
+# provisioned by restoring its backup (manual onboarding); this creates the VM shell + disk.
+#
+# The one consistent gotcha: HAOS will NOT boot under Incus's default secure boot, so the VM sets
+# security.secureboot=false.
 - name: Download HAOS image
   ansible.builtin.get_url:
     url: "{{ haos_image_url }}"
@@ -12,46 +17,28 @@
     creates: "{{ haos_qcow2 }}"
   changed_when: true
 
-- name: Create HAOS VM (UEFI/q35, 2 vCPU, 2GB)
-  community.proxmox.proxmox_kvm:
-    vmid: "{{ haos_vmid }}"
-    node: "{{ ansible_hostname }}"
-    name: haos
-    cores: 2
-    memory: 2048
-    bios: ovmf
-    machine: q35
-    scsihw: virtio-scsi-single
-    net:
-      net0: "virtio,bridge=vmbr0"
-    agent: 1
-    onboot: true
-    state: present
-
-- name: Read current VM config
-  ansible.builtin.command: "qm config {{ haos_vmid }}"
-  register: haos_cfg
-  changed_when: false
-
-- name: Import HAOS disk (only if not attached)
-  ansible.builtin.command: "qm importdisk {{ haos_vmid }} {{ haos_qcow2 }} {{ vm_storage }}"
-  when: "'scsi0' not in haos_cfg.stdout"
+- name: Convert the qcow2 to raw (Incus VM disks are raw block images)
+  ansible.builtin.command: "qemu-img convert -f qcow2 -O raw {{ haos_qcow2 }} {{ haos_raw }}"
+  args:
+    creates: "{{ haos_raw }}"
   changed_when: true
 
-# Robust: read the actual imported volid from the config (handles any storage type/naming)
-# instead of assuming local-lvm:vm-<vmid>-disk-0.
-- name: Find the imported (unused) disk volid
-  ansible.builtin.shell: "qm config {{ haos_vmid }} | awk -F': ' '/^unused[0-9]+:/ {print $2; exit}'"
-  register: haos_disk
+- name: Check if the HAOS VM exists
+  ansible.builtin.command: "incus list {{ haos_vmname }} --format csv -c n"
+  register: haos_exists
   changed_when: false
-  when: "'scsi0' not in haos_cfg.stdout"
 
-- name: Attach disk + EFI + boot order (only if not configured)
+- name: Create the HAOS VM (UEFI, secureboot off, autostart)
   ansible.builtin.command: >-
-    qm set {{ haos_vmid }}
-    --scsi0 {{ haos_disk.stdout }}
-    --efidisk0 {{ vm_storage }}:1,efitype=4m,pre-enrolled-keys=0
-    --boot order=scsi0
-  when: "'scsi0' not in haos_cfg.stdout"
+    incus init {{ haos_vmname }} --vm --empty
+    -c security.secureboot=false
+    -c limits.cpu=2 -c limits.memory=2GiB
+    -c boot.autostart=true
+    -d root,size={{ haos_disk_gb }}GiB
+  when: haos_vmname not in haos_exists.stdout
   changed_when: true
-# Onboarding / restore-from-backup is a MANUAL step (see docs/runbook.md).
+
+# TODO(haos): write {{ haos_raw }} into the VM's root volume, then start it. VM-disk import is
+# version-specific in Incus (e.g. `incus-migrate`, or stop the VM and dd/`incus storage volume
+# import` into the root block volume) — validate the exact incantation on the box before wiring it
+# here. Onboarding / restore-from-backup is a MANUAL step afterwards (see docs/runbook.md).

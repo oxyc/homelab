@@ -1,0 +1,89 @@
+# incus_host: turn a bare Debian host into the Incus hypervisor for this box. Idempotent.
+# (Was `proxmox_host` — the box no longer runs Proxmox: it's plain Debian 13 + Incus. The
+#  hostname is still `pve` for historical reasons but there is no PVE control plane.)
+- name: Install Incus (container base + client)
+  ansible.builtin.apt:
+    name: [incus-base, incus-client]
+    state: present
+    update_cache: true
+  # The full `incus` package (VM support) is deliberately NOT installed here — it pulls
+  # qemu-system-x86. Add it only when a KVM guest (the HAOS VM) is actually deployed; see
+  # the haos_vm role. Containers (gondola, den, future Frigate/Scrypted) need only incus-base.
+
+- name: Ensure incus is enabled + running (so boot.autostart guests come up on boot)
+  ansible.builtin.systemd:
+    name: incus
+    enabled: true
+    state: started
+
+# --- NVR disk: bulk storage on a SEPARATE physical drive (recordings; export target) ---
+- name: Format NVR disk ext4
+  community.general.filesystem:
+    fstype: ext4
+    dev: "{{ nvr_disk_device }}"
+    # force: false  # NEVER set force on a disk with data
+
+- name: Mount NVR disk
+  ansible.posix.mount:
+    path: "{{ nvr_mount }}"
+    src: "{{ nvr_disk_device }}"
+    fstype: ext4
+    opts: defaults,noatime
+    state: mounted
+
+# --- Incus storage + network (first-run init only) ---
+# The storage pool reuses the existing LVM thin pool ({{ incus_vg }}/{{ incus_thinpool }}) so
+# containers/VMs get thin volumes WITH snapshots (`incus snapshot`; `incus export` for backups —
+# the vzdump replacement). The default profile bridges eth0 onto the existing {{ incus_bridge }},
+# so guests get LAN IPs directly exactly as the old Proxmox LXCs did; the bridge is never
+# reconfigured here (touching it on a headless box is the one real lock-out risk).
+- name: Check whether Incus is already initialised
+  ansible.builtin.command: incus storage list --format csv
+  register: incus_pools
+  changed_when: false
+
+- name: Initialise Incus (lvm-thin pool + bridged default profile)
+  ansible.builtin.command:
+    cmd: incus admin init --preseed
+    stdin: |
+      storage_pools:
+      - name: {{ incus_pool }}
+        driver: lvm
+        config:
+          source: {{ incus_vg }}
+          lvm.thinpool_name: {{ incus_thinpool }}
+          lvm.vg.force_reuse: "true"
+      profiles:
+      - name: default
+        devices:
+          root:
+            path: /
+            pool: {{ incus_pool }}
+            type: disk
+          eth0:
+            name: eth0
+            nictype: bridged
+            parent: {{ incus_bridge }}
+            type: nic
+  when: incus_pool not in incus_pools.stdout
+  changed_when: true
+
+# --- iGPU (QuickSync) — passed into camera containers via an Incus `gpu` device ---
+# Under Incus the render node is handed to an UNPRIVILEGED container with
+# `incus config device add <ct> gpu gpu` (cleaner than Proxmox's privileged-LXC +
+# hand-rolled cgroup device rules). Here we only assert it's present on the host.
+- name: Ensure i915 module is loaded
+  community.general.modprobe:
+    name: i915
+    state: present
+
+- name: Verify the render node exists (QuickSync available for an Incus gpu device)
+  ansible.builtin.stat:
+    path: /dev/dri/renderD128
+  register: dri
+  failed_when: not dri.stat.exists
+
+# --- Networking note (no host VLAN config needed) ---
+# Cameras live on a separate VLAN handled by Omada; the host + guests sit on the mgmt
+# LAN ({{ incus_bridge }}), and the Omada gateway routes mgmt->camera per ACL. So no
+# VLAN-aware bridge or tagging is required on the host — segmentation is entirely on Omada.

@@ -1,0 +1,43 @@
+# Host-level point-in-time backup: a daily `incus export` of the container to the nvr disk (a
+# SEPARATE physical drive, so a boot-SSD death doesn't take the exports with it). This is the
+# vzdump replacement — `incus export` bundles the instance config + a storage snapshot into one
+# tarball that `incus import` restores. The app's own OFFSITE backup (restic of its data) is
+# provisioned by the app's repo, not here.
+- name: Install the incus-export backup script for {{ app_name }}
+  ansible.builtin.copy:
+    dest: "/usr/local/bin/incus-export-{{ app_name }}"
+    mode: "0755"
+    content: |
+      #!/bin/sh
+      set -e
+      d={{ nvr_mount }}/incus-exports
+      mkdir -p "$d"
+      incus export {{ app_name }} "$d/{{ app_name }}-$(date +%Y%m%d-%H%M%S).tar.gz" --optimized-storage
+      # keep the last {{ app_backup_keep }} exports
+      ls -1t "$d"/{{ app_name }}-*.tar.gz | tail -n +{{ app_backup_keep + 1 }} | xargs -r rm -f
+
+- name: Install the backup service + timer for {{ app_name }}
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ item.name }}"
+    content: "{{ item.content }}"
+    mode: "0644"
+  loop:
+    - name: "incus-export-{{ app_name }}.service"
+      content: |
+        [Service]
+        Type=oneshot
+        ExecStart=/usr/local/bin/incus-export-{{ app_name }}
+    - name: "incus-export-{{ app_name }}.timer"
+      content: |
+        [Timer]
+        OnCalendar={{ app_backup_schedule }}
+        Persistent=true
+        [Install]
+        WantedBy=timers.target
+
+- name: Enable the export timer for {{ app_name }}
+  ansible.builtin.systemd:
+    name: "incus-export-{{ app_name }}.timer"
+    enabled: true
+    state: started
+    daemon_reload: true
