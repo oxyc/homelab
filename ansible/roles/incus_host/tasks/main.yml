@@ -53,6 +53,9 @@
           source: {{ incus_vg }}
           lvm.thinpool_name: {{ incus_thinpool }}
           lvm.vg.force_reuse: "true"
+          # Raise the per-volume default from Incus's 10GiB (thin-provisioned, so this reserves
+          # address space only) — an app whose data outgrows 10G otherwise fails mid-copy.
+          volume.size: 20GiB
       profiles:
       - name: default
         devices:

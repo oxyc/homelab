@@ -6,16 +6,17 @@ Version-controlled HA config. Scope: **Matter + the Frigate cameras**. No Zigbee
 - `configuration.yaml` snippet — wires the `packages/` dir into HA.
 - `packages/cameras.yaml` — doorbell/person notifications.
 - `packages/monitoring.yaml` — self-monitoring → phone: backup dead-man's switch, a generic
-  alert webhook (smartd/Proxmox call it), and a single notify target.
+  alert webhook (smartd + the host's systemd/restic alerts call it), and a single notify target.
 
 ## Monitoring setup (one-time)
 1. Install the **HA mobile app** on your phone (creates `notify.mobile_app_<device>`).
 2. In `packages/monitoring.yaml` → `script.homelab_notify`, change `notify.notify` to your
    `notify.mobile_app_<device>`.
-3. **Proxmox alerts → phone:** Datacenter → Notifications → add a **Webhook** target
-   `POST http://<haos-ip>:8123/api/webhook/homelab_alert` with body `{"message":"{{ title }}"}`,
-   and point the vzdump/system matchers at it.
-   (restic and smartd already POST to these webhooks via the roles.)
+3. **Host alerts → phone:** nothing to configure in a hypervisor UI — the Debian+Incus host has
+   none. `host_hardening` installs the smartd alert script and the restic timers, which POST
+   directly to `http://<haos-ip>:8123/api/webhook/homelab_alert` (SMART/temperature) and
+   `.../homelab_backup_ok` (backup dead-man's switch). Just make sure those webhook automations
+   exist in `packages/monitoring.yaml`.
 - `secrets.yaml.example` — placeholder; real `secrets.yaml` is gitignored.
 
 ## How it's delivered

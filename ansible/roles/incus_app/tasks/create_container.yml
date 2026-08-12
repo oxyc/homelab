@@ -19,10 +19,18 @@
     -c security.syscalls.intercept.mknod=true
     -c security.syscalls.intercept.setxattr=true
     -c boot.autostart=true
+    -c security.protection.delete=true
     -c limits.cpu={{ app_cores }}
     -c limits.memory={{ app_memory }}MiB
+    -c limits.memory.enforce=soft
+    -c snapshots.schedule={{ app_snapshot_schedule }}
+    -c snapshots.expiry={{ app_snapshot_expiry }}
+    -c boot.host_shutdown_timeout=120
   when: app_name not in app_exists.stdout
   changed_when: true
+  # limits.memory.enforce=soft, NOT the default hard: under podman-in-Incus nesting a HARD memory
+  # cap OOM-kills processes INSIDE the container; soft only biases reclaim under real host pressure.
+  # security.protection.delete guards against an accidental `incus delete` nuking the app's data.
 
 - name: Size the container root disk (thin — only uses what it needs)
   ansible.builtin.command: "incus config device override {{ app_name }} root size={{ app_disk_gb }}GiB"

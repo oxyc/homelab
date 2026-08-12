@@ -16,6 +16,12 @@ app_cores: 2
 app_memory: 3072      # MiB
 app_disk_gb: 40       # gondola's data+exports need >10G; thin-provisioned so unused space costs nothing
 
-# Host-level backup (incus export -> nvr). App-data offsite backup is the app's own concern.
+# In-pool CoW snapshots (cheap on lvm-thin) for quick rollback. Crash-consistent only — a
+# restored snapshot of a running SQLite app may need WAL recovery; pair with the export backup.
+app_snapshot_schedule: "@daily"
+app_snapshot_expiry: "7d"
+
+# Host-level backup (incus export -> nvr, the vzdump replacement). App-data offsite backup is the
+# app's own concern. Runs from a systemd timer (see backup.yml); keeps the last app_backup_keep.
 app_backup_schedule: "*-*-* 04:30:00"
 app_backup_keep: 7
