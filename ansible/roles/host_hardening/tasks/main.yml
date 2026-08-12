@@ -341,46 +341,59 @@
 
 # --- PVE host firewall: lock the management plane to trusted sources (defense-in-depth) ---
 # The hypervisor's control plane (web UI :8006, SSH :22, VM/CT consoles :5900-5999, SPICE :3128) is
-# reachable ONLY from Tailscale + the mgmt LAN; DROP from everything else. Guests are deliberately NOT
-# firewalled here — their exposure is segmented at the network layer (Omada VLANs). The payoff lands at
-# Punta Ballena: set firewall_mgmt_cidr to the Main VLAN and a popped camera/IoT device on VLAN30/40
-# can't even reach the hypervisor. `-i tailscale0` is always allowed so a bad rule can't lock you out.
-- name: PVE firewall binary present (skip these on non-PVE hosts)
+# reachable ONLY from Tailscale + the mgmt LAN; everything else to those ports is dropped. Guests are
+# deliberately NOT firewalled here — their exposure is segmented at the network layer (Omada VLANs). The
+# payoff lands at Punta Ballena: set firewall_mgmt_cidr to the Main VLAN and a popped camera/IoT device on
+# VLAN30/40 can't even reach the hypervisor. `tailscale0` is always allowed so a bad rule can't lock you out.
+#
+# Enforced with a static nftables ruleset (kernel-loaded once at boot, no resident daemon) rather than
+# pve-firewall: our rules never change at runtime, so pve-firewall's polling Perl daemon (~105 MiB + a
+# constant recompile loop) was pure overhead. We retire it below and let nftables.service own the rules.
+- name: PVE firewall binary present (gates the control-plane lockdown to the PVE host)
   ansible.builtin.stat:
     path: /usr/bin/pve-firewall
   register: pve_firewall_bin
 
-- name: Enable the PVE firewall framework (datacenter; guests unaffected)
+- name: nftables package present
+  ansible.builtin.apt:
+    name: nftables
+    state: present
+  when: pve_firewall_bin.stat.exists
+
+- name: Lock the PVE host control plane to Tailscale + the mgmt LAN (static nftables)
+  ansible.builtin.template:
+    src: nftables.conf.j2
+    dest: /etc/nftables.conf
+    mode: "0644"
+    validate: /usr/sbin/nft -c -f %s
+  when: pve_firewall_bin.stat.exists
+  notify: Reload nftables
+
+- name: Enable nftables.service (loads the lockdown ruleset at boot)
+  ansible.builtin.service:
+    name: nftables
+    enabled: true
+    state: started
+  when: pve_firewall_bin.stat.exists
+
+- name: Retire the pve-firewall daemon (nftables owns the rules now — frees ~105 MiB + its poll loop)
+  ansible.builtin.systemd:
+    name: pve-firewall
+    enabled: false
+    state: stopped
+  when: pve_firewall_bin.stat.exists
+
+- name: Disable the old pve-firewall framework (inert once the daemon is off; belt-and-suspenders)
   ansible.builtin.copy:
     dest: /etc/pve/firewall/cluster.fw
     mode: "0640"
     content: |
       [OPTIONS]
-      enable: 1
-      policy_in: ACCEPT
-      policy_out: ACCEPT
+      enable: 0
   when: pve_firewall_bin.stat.exists
-  notify: Restart pve-firewall
 
-- name: Lock the PVE host control plane to Tailscale + the mgmt LAN
-  ansible.builtin.copy:
-    dest: "/etc/pve/nodes/{{ pve_node_name | default('pve') }}/host.fw"
-    mode: "0640"
-    content: |
-      [OPTIONS]
-      enable: 1
-
-      [RULES]
-      IN ACCEPT -i tailscale0 # remote admin over Tailscale (anti-lockout — never remove)
-      IN ACCEPT -source {{ firewall_tailscale_cidr | default('100.64.0.0/10') }} # Tailscale CGNAT range
-      IN ACCEPT -p icmp # ping/diagnostics
-      IN ACCEPT -source {{ firewall_mgmt_cidr }} -p tcp -dport 8006 # PVE web UI
-      IN ACCEPT -source {{ firewall_mgmt_cidr }} -p tcp -dport 22 # SSH
-      IN ACCEPT -source {{ firewall_mgmt_cidr }} -p tcp -dport 5900:5999 # noVNC/CT+VM console
-      IN ACCEPT -source {{ firewall_mgmt_cidr }} -p tcp -dport 3128 # SPICE
-      IN DROP -p tcp -dport 8006
-      IN DROP -p tcp -dport 22
-      IN DROP -p tcp -dport 5900:5999
-      IN DROP -p tcp -dport 3128
+- name: Remove the superseded per-node host.fw rules
+  ansible.builtin.file:
+    path: "/etc/pve/nodes/{{ pve_node_name | default('pve') }}/host.fw"
+    state: absent
   when: pve_firewall_bin.stat.exists
-  notify: Restart pve-firewall

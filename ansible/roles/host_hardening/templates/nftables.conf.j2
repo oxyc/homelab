@@ -1,0 +1,30 @@
+#!/usr/sbin/nft -f
+# {{ ansible_managed }}
+# PVE host control-plane lockdown — replaces pve-firewall (see host_hardening/tasks).
+#
+# Deliberately NO `flush ruleset`: that would wipe Docker/PVE netfilter state on
+# every load. The add/delete/recreate idiom below replaces ONLY our own table,
+# atomically, so `nft -f` is idempotent and never touches anyone else's rules.
+add table inet host_lockdown
+delete table inet host_lockdown
+table inet host_lockdown {
+  chain input {
+    type filter hook input priority 0; policy accept;
+
+    iif "lo" accept
+    ct state established,related accept
+
+    # Trusted admin sources — full access. `tailscale0` is always allowed so a
+    # bad rule (or the Punta Ballena move) can never lock you out.
+    iifname "tailscale0" accept
+    ip saddr {{ firewall_tailscale_cidr | default('100.64.0.0/10') }} accept
+    ip saddr {{ firewall_mgmt_cidr }} accept
+    ip protocol icmp accept
+
+    # Everyone else: the control plane is closed (web UI :8006, SSH :22, SPICE
+    # :3128, VM/CT consoles :5900-5999). Guests are unaffected — their exposure
+    # is segmented at the network layer (Omada VLANs).
+    tcp dport { 22, 3128, 8006 } drop
+    tcp dport 5900-5999 drop
+  }
+}
