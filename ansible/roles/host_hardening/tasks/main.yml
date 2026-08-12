@@ -352,7 +352,7 @@
 # constant recompile loop) was pure overhead. We retire it below and let nftables.service own the rules.
 - name: PVE firewall binary present (gates the control-plane lockdown to the PVE host)
   ansible.builtin.stat:
-    path: /usr/bin/pve-firewall
+    path: /usr/sbin/pve-firewall
   register: pve_firewall_bin
 
 - name: nftables package present
