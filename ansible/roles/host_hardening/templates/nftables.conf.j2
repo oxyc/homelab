@@ -18,7 +18,11 @@ table inet host_lockdown {
     # bad rule (or the Punta Ballena move) can never lock you out.
     iifname "tailscale0" accept
     ip saddr {{ firewall_tailscale_cidr | default('100.64.0.0/10') }} accept
-    ip saddr {{ firewall_mgmt_cidr }} accept
+    # Trusted management LAN(s). During the Montevideo->Punta Ballena move both
+    # are listed; drop the Montevideo entry from firewall_mgmt_cidrs after the move.
+{% for cidr in firewall_mgmt_cidrs %}
+    ip saddr {{ cidr }} accept
+{% endfor %}
     ip protocol icmp accept
 
     # Everyone else: the control plane is closed (web UI :8006, SSH :22, SPICE

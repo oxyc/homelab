@@ -343,8 +343,9 @@
 # The hypervisor's control plane (web UI :8006, SSH :22, VM/CT consoles :5900-5999, SPICE :3128) is
 # reachable ONLY from Tailscale + the mgmt LAN; everything else to those ports is dropped. Guests are
 # deliberately NOT firewalled here — their exposure is segmented at the network layer (Omada VLANs). The
-# payoff lands at Punta Ballena: set firewall_mgmt_cidr to the Main VLAN and a popped camera/IoT device on
-# VLAN30/40 can't even reach the hypervisor. `tailscale0` is always allowed so a bad rule can't lock you out.
+# payoff lands at Punta Ballena: firewall_mgmt_cidrs is the Main VLAN (drop Montevideo after the move) and a
+# popped camera/IoT device on VLAN30/40 can't even reach the hypervisor. `tailscale0` is always allowed so a
+# bad rule can't lock you out.
 #
 # Enforced with a static nftables ruleset (kernel-loaded once at boot, no resident daemon) rather than
 # pve-firewall: our rules never change at runtime, so pve-firewall's polling Perl daemon (~105 MiB + a
