@@ -1,7 +1,7 @@
 # Reverse proxy with a wildcard cert for *.${CADDY_LOCAL_DOMAIN} via Cloudflare DNS-01.
 # The real domain lives only in .env (CADDY_LOCAL_DOMAIN) — never hardcoded here.
 # Names resolve to private IPs (local DNS + Tailscale split-DNS); nothing is exposed.
-# Proxmox is also reachable directly as https://<host>:8006 (Tailscale MagicDNS).
+# The Incus host has no web UI — it's reached over SSH (Tailscale), not through Caddy.
 {
 	email {$ACME_EMAIL}
 }
@@ -25,15 +25,6 @@
 	handle @scrypted {
 		# Scrypted is host-networked; set SCRYPTED_HOST to the LXC IP when homekit is on.
 		reverse_proxy https://{$SCRYPTED_HOST}:10443 {
-			transport http {
-				tls_insecure_skip_verify
-			}
-		}
-	}
-
-	@pve host pve.{$CADDY_LOCAL_DOMAIN}
-	handle @pve {
-		reverse_proxy https://{$PROXMOX_IP}:8006 {
 			transport http {
 				tls_insecure_skip_verify
 			}

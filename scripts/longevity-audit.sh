@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Longevity audit — READ-ONLY, writes nothing to disk (safe for a wear-conscious box).
-# Reports SSD wear + lifetime writes, live write-rate per device, per-CT write
+# Reports SSD wear + lifetime writes, live write-rate per device, per-container write
 # attribution, and temperatures — the things that actually shorten hardware life.
 #
-# Run on the Proxmox host:
+# Run on the Debian + Incus host:
 #   ssh root@<pve> 'bash -s' < scripts/longevity-audit.sh
 # or copy it over and run locally. No cron, no persistent state — run on demand.
 set -u
@@ -28,10 +28,16 @@ awk 'NR==FNR{w[$3]=$10; next} ($3 in w) && ($3 ~ /nvme|sd/){kb=($10-w[$3])*512/6
 echo "  (near-zero here = the box is genuinely write-idle right now)"
 
 echo
-echo "== per-CT write attribution (cumulative this boot) =="
-for ct in $(pct list 2>/dev/null | awk 'NR>1{print $1}'); do
-  p=$(ls /sys/fs/cgroup/lxc/"$ct"/io.stat /sys/fs/cgroup/lxc/"$ct"/*/io.stat 2>/dev/null | head -1)
-  [ -n "$p" ] && awk -v ct="$ct" '{for(i=1;i<=NF;i++) if($i ~ /^wbytes=/){sub("wbytes=","",$i); s+=$i}} END{printf "  CT%s: %.1f GiB\n", ct, s/1073741824}' "$p"
+echo "== per-container write attribution (cumulative this boot) =="
+# Resolve each Incus container's cgroup from its leader PID (robust across Incus cgroup layouts),
+# then sum wbytes from that cgroup's io.stat. Replaces the Proxmox `pct` + /sys/fs/cgroup/lxc path.
+for ct in $(incus list -c n --format csv 2>/dev/null); do
+  pid=$(incus info "$ct" 2>/dev/null | awk '/PID:/{print $2; exit}')
+  [ -n "$pid" ] || continue
+  cg=$(awk -F: '/^0::/{print $3}' /proc/"$pid"/cgroup 2>/dev/null)
+  st="/sys/fs/cgroup${cg}/io.stat"
+  [ -f "$st" ] || st=$(find /sys/fs/cgroup -maxdepth 5 -name io.stat -path "*$ct*" 2>/dev/null | head -1)
+  [ -f "$st" ] && awk -v ct="$ct" '{for(i=1;i<=NF;i++) if($i ~ /^wbytes=/){sub("wbytes=","",$i); s+=$i}} END{printf "  %s: %.1f GiB\n", ct, s/1073741824}' "$st"
 done
 
 echo

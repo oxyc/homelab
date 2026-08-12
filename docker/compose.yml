@@ -50,7 +50,7 @@ services:
 
   # --- Cloudflare Tunnel: browser/family access to HA via Zero Trust (off by default) ---
   cloudflared:
-    image: cloudflare/cloudflared:latest
+    image: cloudflare/cloudflared:2026.3.0   # pinned (matches gondola's tunnel) — avoid :latest drift
     container_name: cloudflared
     restart: unless-stopped
     profiles: ["tunnel"]       # docker compose --profile tunnel up -d

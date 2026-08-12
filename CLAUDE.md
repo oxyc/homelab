@@ -18,7 +18,7 @@ The pre-commit hook skips tools that aren't installed; GitHub Actions (`.github/
 - Host = plain Debian 13 + Incus (`incus-base`; containers only — the full `incus`/qemu goes on only when the HAOS VM lands). Guests on an **lvm-thin** pool (VG `pve`/thinpool `data`, snapshots via `incus snapshot`), bridged onto `vmbr0` for LAN IPs. Ansible: `incus_host` + `host_hardening` + `incus_app` roles.
 - Containers run **rootful podman-in-Incus** (`security.nesting` + syscall intercepts), AppArmor-**confined** (only works on the Debian kernel; the proxmox kernel needed `apparmor=unconfined`).
 - Future camera stack = an **unprivileged Incus container with an Incus `gpu` device** (QuickSync); HA = an **Incus KVM VM** (secureboot off). CX820 main is H.265 → recorded raw; only the HomeKit path transcodes (Scrypted, on the iGPU). HomeKit behind compose `profiles: ["homekit"]`.
-- ext4 (not ZFS); backups = restic → Backblaze B2 (app/HA state) + `incus export` → NVMe (local; the vzdump replacement).
+- ext4 (not ZFS); backups = restic → Cloudflare R2 (HA state, per `restic_backup`; each app does its own offsite) + `incus export` → NVMe (local; the vzdump replacement).
 
 ## Manual steps (not automated)
 BIOS, Omada, Debian install, `incus admin init`, Scrypted camera config, HomeKit pairing. Documented in `docs/` (local).

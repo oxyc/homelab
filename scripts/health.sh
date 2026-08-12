@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# One-shot health sweep for the headless Proxmox host: memory, disks, SMART/NVMe wear +
-# temperature, PVE storage, failed units, Tailscale, recent journal errors.
+# One-shot health sweep for the headless Debian + Incus host: memory, disks, SMART/NVMe wear +
+# temperature, Incus instances + storage, failed units, Tailscale, recent journal errors.
 #
 # Host resolution (first hit wins): $HOST env → ansible_host in ansible/inventory.yml → `pve`
 # (Tailscale MagicDNS). Override user with $SSH_USER (default root — uses the key, so it
@@ -25,7 +25,8 @@ echo "===== HOST / UPTIME ====="; hostname; uptime
 echo; echo "===== MEMORY ====="; free -h
 echo; echo "===== DISK USAGE ====="; df -h -x tmpfs -x devtmpfs | grep -vE 'overlay|shm'
 echo; echo "===== nvr MOUNT ====="; findmnt /mnt/nvr 2>/dev/null || echo "(nvr not mounted)"
-echo; echo "===== PVE STORAGE ====="; pvesm status 2>/dev/null || echo "(pvesm n/a)"
+echo; echo "===== INCUS INSTANCES ====="; incus list -c ns4 2>/dev/null || echo "(incus n/a)"
+echo; echo "===== INCUS STORAGE ====="; incus storage list 2>/dev/null || echo "(incus n/a)"
 echo; echo "===== SMART HEALTH ====="
 for d in /dev/nvme?n1 /dev/sd?; do [ -b "$d" ] || continue
   echo "--- $d ---"; smartctl -H "$d" 2>/dev/null | grep -iE 'result|health' || echo "  (no smartctl)"; done

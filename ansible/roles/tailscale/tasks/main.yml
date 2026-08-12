@@ -1,4 +1,4 @@
-# Tailscale on the Proxmox host: SSH in from your phone over the tailnet, no keys/ports.
+# Tailscale on the Debian + Incus host: SSH in from your phone over the tailnet, no keys/ports.
 - name: Install Tailscale
   ansible.builtin.shell: curl -fsSL https://tailscale.com/install.sh | sh
   args:

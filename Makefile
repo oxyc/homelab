@@ -27,9 +27,6 @@ preflight:      ## Full local rehearsal (lint + syntax + compose + caddy + toggl
 check-config:   ## Pre-deploy gate: required files/keys present, no placeholders, cross-file consistency
 	./scripts/check-config.sh
 
-molecule:       ## Run the docker_host role molecule test (needs molecule[docker])
-	cd ansible/roles/docker_host && molecule test
-
 validate: lint compose-config test  ## All static checks
 
 check:          ## Ansible dry-run against inventory.yml

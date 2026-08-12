@@ -33,7 +33,7 @@ won't deploy.
 |--------------------|-------------------|-----------------|
 | `docker/.env.example` | `docker/.env` | secrets + IPs — pull from your password manager: `bw get notes homelab-env > docker/.env` |
 | `ansible/group_vars/all.example.yml` | `ansible/group_vars/all.yml` | mostly defaults; set `haos_ip` to your HA VM |
-| `ansible/inventory.example.yml` | `ansible/inventory.yml` | Proxmox host IP, LXC IP + gateway |
+| `ansible/inventory.example.yml` | `ansible/inventory.yml` | Debian host IP, container IP + gateway |
 | `tailscale/acl.hujson.example` | `tailscale/acl.hujson` | your tailnet login + LAN CIDR (then paste into the Tailscale console) |
 | `proxmox/answer.toml.example` | `proxmox/answer.toml` | *(optional)* unattended install: hashed root pw + email |
 
@@ -129,7 +129,7 @@ are configured:
    `https://ha.<CADDY_LOCAL_DOMAIN>` (real cert) or `http://<HAOS_IP>:8123`.
 3. **Away from home** — the box only exposes Tailscale, so put the phone on the tailnet:
    - Install **Tailscale** and sign in (this phone is already a tailnet node).
-   - The Proxmox host advertises the `192.168.10.0/24` route (`ts_advertise_routes`), so with
+   - The host advertises the `192.168.10.0/24` route (`ts_advertise_routes`), so with
      Tailscale on, `http://<HAOS_IP>:8123` reaches HA directly — no Nabu Casa, nothing public.
 4. In the HA app, set **both** the home and remote URL to the **same** value so it just works
    in either place. Most reliable over Tailscale is the IP (`http://<HAOS_IP>:8123`);
@@ -163,4 +163,4 @@ setup + HomeKit pairing. The go2rtc restreams Scrypted consumes already exist in
 - Scrypted camera setup and HomeKit pairing are manual (not automated).
 - Remote access: **Tailscale** on the host (`--ssh`) — SSH from your phone, no ports/keys. (`ansible/roles/tailscale`)
 - Home Assistant config-as-code under `homeassistant/` (Matter + Frigate cameras; no Zigbee). Most of it is code; Matter pairing + add-on install stay in the UI.
-- Backups: `restic` → Backblaze B2 (app/HA state); `incus export` → NVMe (local, the vzdump replacement). Footage and Scrypted pairings are not backed up.
+- Backups: the `restic_backup` role ships HA state → **Cloudflare R2** (S3-compatible); `incus export` → NVMe (local, the vzdump replacement). Each app container backs up its own data offsite from its own repo. Footage and Scrypted pairings are not backed up.

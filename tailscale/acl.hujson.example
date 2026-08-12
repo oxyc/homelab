@@ -7,7 +7,7 @@
     {"action": "accept", "src": ["autogroup:member"], "dst": ["*:*"]},
   ],
 
-  // Auto-approve the home LAN route advertised by the Proxmox host (no manual approval).
+  // Auto-approve the home LAN route advertised by the host (no manual approval).
   "autoApprovers": {
     "routes": {
       "192.168.10.0/24": ["you@example.com"], // <- your tailnet login + real LAN CIDR
