@@ -1,0 +1,24 @@
+# Caddy reverse proxy — custom build (Caddy + cloudflare-dns module for wildcard DNS-01 certs).
+# The image is built by the provisioner (podman build docker/caddy/) as localhost/homelab-caddy.
+[Unit]
+Description=Caddy reverse proxy
+After=cameras-network.service
+Wants=cameras-network.service
+
+[Container]
+Image=localhost/homelab-caddy:latest
+ContainerName=caddy
+Network=cameras.network
+EnvironmentFile=/opt/homelab/.env
+Volume=/opt/homelab/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+# /data holds the ACME certs — host bind so certs survive a container rebuild + get backed up.
+Volume=/opt/homelab/caddy/data:/data
+Volume=/opt/homelab/caddy/config:/config
+PublishPort=443:443
+PublishPort=80:80
+
+[Service]
+Restart=unless-stopped
+
+[Install]
+WantedBy=default.target

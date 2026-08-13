@@ -1,0 +1,32 @@
+# Frigate NVR — 2 cameras. Records H.265 raw (copy, no transcode); detection + decode per config.yml.
+# iGPU (/dev/dri) is used for vaapi decode of the detect streams, and for OpenVINO detection IF
+# config.yml's detector is set to `openvino` (default there is `cpu` — see the detector note in
+# docs/decisions.md). Recordings go to /mnt/nvr (the Incus 'nvr' disk device, on the 2TB NVMe).
+[Unit]
+Description=Frigate NVR
+After=cameras-network.service
+Wants=cameras-network.service
+
+[Container]
+Image=ghcr.io/blakeblackshear/frigate:stable
+ContainerName=frigate
+Network=cameras.network
+EnvironmentFile=/opt/homelab/.env
+AddDevice=/dev/dri
+ShmSize=256m
+# Config + Frigate's own state (db, model cache) live on the host bind for easy backup; config.yml is
+# synced there by the provisioner. Recordings are the separate NVMe mount.
+Volume=/opt/homelab/frigate:/config
+Volume=/mnt/nvr:/media/frigate
+PublishPort=5000:5000
+PublishPort=8554:8554
+PublishPort=8555:8555/tcp
+PublishPort=8555:8555/udp
+AutoUpdate=registry
+
+[Service]
+Restart=unless-stopped
+TimeoutStartSec=120
+
+[Install]
+WantedBy=default.target

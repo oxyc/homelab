@@ -1,0 +1,21 @@
+# Scrypted — HomeKit / HKSV bridge. OFF by default: the provisioner only installs this unit when
+# COMPOSE_PROFILES includes `homekit` (the podman equivalent of the old compose `profiles: [homekit]`).
+# Host networking is required for HomeKit/HKSV mDNS on the LAN (the Incus container is LAN-bridged).
+# iGPU is used for the HEVC->H.264 transcode Apple requires (only when serving the full-res stream).
+[Unit]
+Description=Scrypted (HomeKit / HKSV)
+
+[Container]
+Image=ghcr.io/koush/scrypted:latest
+ContainerName=scrypted
+Network=host
+AddDevice=/dev/dri
+# HomeKit pairings live here (deliberately NOT backed up — re-pair on disaster, per docs/decisions.md).
+Volume=/opt/homelab/scrypted:/server/volume
+AutoUpdate=registry
+
+[Service]
+Restart=unless-stopped
+
+[Install]
+WantedBy=default.target

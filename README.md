@@ -19,7 +19,7 @@ The camera stack will run as an **unprivileged Incus container with an Incus `gp
 ```
 ansible/   # site.yml + roles: incus_host, host_hardening, tailscale, incus_app,
            #                    haos_vm (future), docker_host (future), restic_backup, reolink_cameras
-docker/    # compose.yml (frigate + scrypted + caddy, shared /dev/dri) + configs — for the future camera container
+docker/    # podman Quadlet units (frigate + caddy + scrypted, shared /dev/dri) + configs + provision-cameras.sh — the future camera container
 ```
 
 ## Configuration
@@ -55,16 +55,16 @@ ansible-playbook site.yml --check --diff    # dry run
 ansible-playbook site.yml --tags host       # then: haos, docker, backup  (or `make deploy`)
 ```
 
-App stack alone (e.g. to test on a laptop):
+Camera stack (podman + Quadlet, run inside the Incus `cameras` container — deployed by ansible):
 
 ```bash
-cd docker && cp .env.example .env           # fill in
-docker compose up                           # frigate + caddy (HomeKit OFF by default)
+# on the box, inside the cameras container (or via the docker_host role):
+COMPOSE_PROFILES="homekit tunnel" docker/provision-cameras.sh   # omit profiles for frigate+caddy only
 ```
 
-Common tasks via `make` (run `make help`): `validate`, `up`, `homekit`, `check`, `down`.
+Common tasks via `make` (run `make help`): `validate`, `check`, `deploy`, `health`.
 
-Install the local pre-commit hook (validates compose + scans for secrets, skips tools
+Install the local pre-commit hook (scans for secrets, skips tools
 you don't have): `make hooks`. The same checks run in GitHub Actions on every push
 (public repo → free unlimited CI).
 

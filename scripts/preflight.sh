@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # One-shot local validation before touching hardware. Needs docker; no local installs.
-# Mirrors the GitHub Actions CI plus caddy + the toggle test.
+# Mirrors the GitHub Actions CI plus a caddy Caddyfile validate. (The camera stack is
+# podman-Quadlet now — the units validate at deploy, so there's no offline compose check.)
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)" || exit 1
 fail=0
@@ -16,15 +17,6 @@ docker run --rm -v "$PWD":/w -w /w python:3.12-slim sh -lc '
   ansible-playbook site.yml --syntax-check
 ' && echo "  ✓ lint + syntax" || fail=1
 
-echo "▶ docker compose config (default + homekit)"
-# NEVER clobber a real docker/.env: only stage a temp one if none exists, and only
-# remove what we created.
-( cd docker || exit 1
-  tmp=0; [ -f .env ] || { cp .env.example .env; tmp=1; }
-  docker compose config -q && docker compose --profile homekit config -q; rc=$?
-  [ "$tmp" = 1 ] && rm -f .env
-  exit $rc ) && echo "  ✓ compose" || fail=1
-
 echo "▶ caddy validate (wildcard DNS-01)"
 docker build -q -t homelab-caddy:2 docker/caddy >/dev/null 2>&1 \
 && docker run --rm -v "$PWD/docker/caddy/Caddyfile":/Caddyfile:ro \
@@ -33,9 +25,6 @@ docker build -q -t homelab-caddy:2 docker/caddy >/dev/null 2>&1 \
    -e HAOS_IP=10.0.0.1 -e SCRYPTED_HOST=10.0.0.3 \
    homelab-caddy:2 caddy validate --adapter caddyfile --config /Caddyfile >/dev/null 2>&1 \
 && echo "  ✓ caddy" || fail=1
-
-echo "▶ homekit toggle"
-./scripts/test-toggle.sh >/dev/null 2>&1 && echo "  ✓ toggle" || fail=1
 
 echo "▶ gitleaks (secret scan, full history)"
 docker run --rm -v "$PWD":/repo zricethezav/gitleaks:latest detect --source=/repo --no-banner >/dev/null 2>&1 \

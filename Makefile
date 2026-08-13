@@ -1,4 +1,4 @@
-.PHONY: help lint validate compose-config up homekit down deps check health
+.PHONY: help lint validate deps hooks check-config check deploy health preflight
 
 help:           ## Show this help
 	@grep -E '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -14,38 +14,19 @@ lint:           ## yamllint + ansible-lint
 	yamllint .
 	cd ansible && ansible-lint
 
-compose-config: ## Validate docker compose (needs docker/.env)
-	cd docker && docker compose config -q && echo "compose OK"
-	cd docker && docker compose --profile homekit config -q && echo "compose (homekit) OK"
-
-test:           ## Prove the HomeKit toggle (docker only, no ansible)
-	./scripts/test-toggle.sh
-
-preflight:      ## Full local rehearsal (lint + syntax + compose + caddy + toggle)
+preflight:      ## Full local rehearsal (lint + ansible syntax-check)
 	./scripts/preflight.sh
 
 check-config:   ## Pre-deploy gate: required files/keys present, no placeholders, cross-file consistency
 	./scripts/check-config.sh
 
-validate: lint compose-config test  ## All static checks
+validate: lint  ## All static checks (the camera stack is podman-Quadlet now — units validate at deploy)
 
 check:          ## Ansible dry-run against inventory.yml
 	cd ansible && ansible-playbook site.yml --check --diff
 
 deploy: check-config   ## Apply the stack (refuses to run until config is complete)
 	cd ansible && ansible-playbook site.yml
-
-up:             ## Start the default stack (frigate + caddy)
-	cd docker && docker compose up -d
-
-homekit:        ## Start incl. Scrypted (HomeKit/HKSV)
-	cd docker && docker compose --profile homekit up -d
-
-tunnel:         ## Start incl. Cloudflare Tunnel (HA via Zero Trust)
-	cd docker && docker compose --profile tunnel up -d
-
-down:           ## Stop the stack
-	cd docker && docker compose down
 
 health:         ## SSH health sweep (mem/disk/SMART/temp/units). HOST=ip to override
 	./scripts/health.sh

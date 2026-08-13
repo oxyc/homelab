@@ -1,19 +1,18 @@
-# FUTURE (cameras_enabled): the camera stack (Frigate + Scrypted + Caddy) as an UNPRIVILEGED Incus
-# container with an Incus `gpu` device for QuickSync. NOT deployed on this box yet and not yet
-# validated on Incus. Under Proxmox this was planned as a privileged LXC sharing /dev/dri; under
-# Incus it's a nested (podman/docker) container plus `incus config device add cameras gpu gpu` —
-# cleaner and safer (unprivileged). Backups are `incus export` (see incus_app/backup.yml), NOT vzdump.
+# FUTURE (cameras_enabled): the camera stack (Frigate + Caddy [+ Scrypted/cloudflared]) as an
+# UNPRIVILEGED Incus container with an Incus `gpu` device for QuickSync. Runs **rootful podman +
+# Quadlet** inside the container — the SAME shape as gondola/den (one runtime across the box; the old
+# docker-compose was dropped in favour of Quadlet units in docker/quadlet/). NOT deployed on this box
+# yet and NOT yet validated on the hardware. Backups are `incus export` (see incus_app/backup.yml).
 #
-# This is a skeleton: it stands up the container shell + gpu + nvr mount. Wiring the compose stack
-# (sync ../docker, docker compose up) mirrors the app-repo self-provision pattern and is left as a
-# TODO to fill in when the cameras are actually deployed and validated on the hardware.
+# (Role name is legacy — it provisions a podman camera *container*, not a docker host; rename to
+#  camera_container when the stack is actually built out.)
 - name: Check if the camera container exists
   ansible.builtin.command: "incus list {{ docker_ctname }} --format csv -c n"
   register: cam_exists
   changed_when: false
   when: not molecule_test
 
-- name: Create the camera container (nested, autostart)
+- name: Create the camera container (nested podman, autostart)
   ansible.builtin.command: >-
     incus launch images:debian/13 {{ docker_ctname }}
     -c security.nesting=true
@@ -39,6 +38,17 @@
     - docker_ctname not in cam_exists.stdout
   changed_when: true
 
-# TODO(cameras): install docker/podman inside {{ docker_ctname }}, sync ../docker (compose.yml +
-# configs), render .env, and `docker compose up` (HomeKit via compose_profiles). Mirror the
-# app-repo self-provision pattern; add an `incus export` backup timer like incus_app/backup.yml.
+# Sync the repo's docker/ dir (Quadlet units + frigate config + caddy build + .env if present) into the
+# container, then run the idempotent podman provisioner. Mirrors the app-repo self-provision pattern.
+- name: Sync the camera stack sources into the container
+  ansible.builtin.command: "incus file push -r -q {{ compose_src }} {{ docker_ctname }}/root/"
+  when: not molecule_test
+  changed_when: true
+
+- name: Provision podman + Quadlet units inside the container
+  ansible.builtin.command: >-
+    incus exec {{ docker_ctname }} --
+    env COMPOSE_PROFILES="{{ compose_profiles | join(' ') }}"
+    bash /root/docker/provision-cameras.sh
+  when: not molecule_test
+  changed_when: true

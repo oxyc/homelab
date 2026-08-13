@@ -1,0 +1,5 @@
+# Shared podman network for the camera stack (Frigate + Caddy). netavark + aardvark-dns give
+# name-based DNS, so Caddy reaches Frigate by container name. Scrypted uses host networking
+# (HomeKit/HKSV mDNS) and is NOT on this network. Quadlet turns this into cameras-network.service.
+[Network]
+NetworkName=cameras

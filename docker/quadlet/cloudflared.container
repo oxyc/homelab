@@ -1,0 +1,17 @@
+# Cloudflare Tunnel — browser/family access to HA via Zero Trust. OFF by default: the provisioner
+# only installs this unit when COMPOSE_PROFILES includes `tunnel`. Outbound-only (no published ports);
+# ingress + Access policy live in the Cloudflare dashboard. TUNNEL_TOKEN comes from the .env.
+[Unit]
+Description=Cloudflare Tunnel (HA access)
+
+[Container]
+Image=docker.io/cloudflare/cloudflared:2026.3.0
+ContainerName=cloudflared
+EnvironmentFile=/opt/homelab/.env
+Exec=tunnel --no-autoupdate run
+
+[Service]
+Restart=unless-stopped
+
+[Install]
+WantedBy=default.target
