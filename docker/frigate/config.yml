@@ -12,9 +12,24 @@ mqtt:
   user: "{FRIGATE_MQTT_USER}"
   password: "{FRIGATE_MQTT_PASSWORD}"
 
+# Object detection on the Intel UHD 630 iGPU via OpenVINO (uses the shader EUs) — far lower CPU/power
+# than CPU detection, and now clean under Incus (unprivileged `gpu` device; the old Proxmox privileged-
+# LXC friction that pushed this to CPU is gone). Shares the iGPU with vaapi decode (media engine) and,
+# when HomeKit is on, Scrypted's transcode — fine for 2 cameras. Move to a Coral (type: edgetpu) later
+# if that contends or when adding cameras. Requires /dev/dri in the container (Quadlet AddDevice).
 detectors:
-  cpu1:
-    type: cpu                     # detection on CPU; iGPU reserved for Scrypted transcode later
+  ov:
+    type: openvino
+    device: GPU
+
+# Frigate bundles this OpenVINO model (ssdlite mobilenet v2, COCO) at /openvino-model in the image.
+model:
+  width: 300
+  height: 300
+  input_tensor: nhwc
+  input_pixel_format: bgr
+  path: /openvino-model/ssdlite_mobilenet_v2.xml
+  labelmap_path: /openvino-model/coco_91cl_bkgr.txt
 
 ffmpeg:
   hwaccel_args: preset-vaapi      # iGPU decode for detect streams (record is copy)
