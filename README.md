@@ -9,16 +9,17 @@ Single-host home server provisioned with Ansible. The host is **plain Debian 13 
 **Planned** (opt-in roles, not yet deployed on this box):
 - **Frigate** — NVR + object detection (records native H.265, no transcode)
 - **Scrypted** — HomeKit live + HomeKit Secure Video
-- **Home Assistant** — as an Incus KVM VM
+- **Home Assistant** — HA Container + Mosquitto (podman, config-as-code — not a HAOS VM)
 - **Caddy** — local HTTPS reverse proxy
 
-The camera stack will run as an **unprivileged Incus container with an Incus `gpu` device** (QuickSync passthrough) + HAOS as an Incus VM. All secrets are externalized (env vars / `!secret` / Bitwarden), so this repo is public-safe.
+The camera stack runs as an **unprivileged Incus container with an Incus `gpu` device** (QuickSync passthrough), and Home Assistant as its own podman container — everything's a container, no VM. All secrets are externalized (env vars / `!secret` / Bitwarden), so this repo is public-safe.
 
 ## Layout
 
 ```
 ansible/   # site.yml + roles: incus_host, host_hardening, tailscale, incus_app,
-           #                    haos_vm (future), camera_container (future), restic_backup, reolink_cameras
+           #                    ha_container (future), camera_container (future), restic_backup, reolink_cameras
+homeassistant/  # HA-Container config-as-code (configuration.yaml + packages) + Quadlet units + provision-ha.sh
 docker/    # podman Quadlet units (frigate + caddy + scrypted, shared /dev/dri) + configs + provision-cameras.sh — the future camera container
 ```
 
@@ -32,7 +33,7 @@ won't deploy.
 | Copy this template | → to (gitignored) | What goes in it |
 |--------------------|-------------------|-----------------|
 | `docker/.env.example` | `docker/.env` | secrets + IPs — pull from your password manager: `bw get notes homelab-env > docker/.env` |
-| `ansible/group_vars/all.example.yml` | `ansible/group_vars/all.yml` | mostly defaults; set `haos_ip` to your HA VM |
+| `ansible/group_vars/all.example.yml` | `ansible/group_vars/all.yml` | mostly defaults; set `ha_ip` to the HA container |
 | `ansible/inventory.example.yml` | `ansible/inventory.yml` | Debian host IP, container IP + gateway |
 | `tailscale/acl.hujson.example` | `tailscale/acl.hujson` | your tailnet login + LAN CIDR (then paste into the Tailscale console) |
 | `proxmox/answer.toml.example` | `proxmox/answer.toml` | *(optional)* unattended install: hashed root pw + email |
@@ -52,7 +53,7 @@ make check-config                           # verify config is complete
 cd ansible
 ansible-galaxy collection install -r requirements.yml
 ansible-playbook site.yml --check --diff    # dry run
-ansible-playbook site.yml --tags host       # then: haos, docker, backup  (or `make deploy`)
+ansible-playbook site.yml --tags host       # then: ha, cameras, backup  (or `make deploy`)
 ```
 
 Camera stack (podman + Quadlet, run inside the Incus `cameras` container — deployed by ansible):
@@ -70,7 +71,7 @@ you don't have): `make hooks`. The same checks run in GitHub Actions on every pu
 
 ## Access
 
-Real IPs live only in `docker/.env` (`PROXMOX_IP` — legacy var name, now the Debian host — `HAOS_IP`,
+Real IPs live only in `docker/.env` (`PROXMOX_IP` — legacy var name, now the Debian host — `HA_IP`,
 `SCRYPTED_HOST`) — the placeholders below stand in for them. `pve` is the Tailscale MagicDNS name (the
 host's `ts_hostname`), so it resolves from any device on the tailnet with no IP to remember.
 
@@ -118,7 +119,7 @@ are configured:
 
 | Service | Direct | Via Caddy |
 |---------|--------|-----------|
-| Home Assistant | `http://<HAOS_IP>:8123` | `https://ha.<CADDY_LOCAL_DOMAIN>` |
+| Home Assistant | `http://<HA_IP>:8123` | `https://ha.<CADDY_LOCAL_DOMAIN>` |
 | Frigate | `http://<SCRYPTED_HOST>:5000` | `https://frigate.<CADDY_LOCAL_DOMAIN>` |
 | Scrypted (homekit profile) | `https://<SCRYPTED_HOST>:10443` | `https://scrypted.<CADDY_LOCAL_DOMAIN>` |
 
@@ -126,13 +127,13 @@ are configured:
 
 1. Install the **Home Assistant** Companion app (iOS/Android) and log in with your HA account.
 2. **At home** (same LAN) the app auto-discovers HA, or enter the URL manually:
-   `https://ha.<CADDY_LOCAL_DOMAIN>` (real cert) or `http://<HAOS_IP>:8123`.
+   `https://ha.<CADDY_LOCAL_DOMAIN>` (real cert) or `http://<HA_IP>:8123`.
 3. **Away from home** — the box only exposes Tailscale, so put the phone on the tailnet:
    - Install **Tailscale** and sign in (this phone is already a tailnet node).
    - The host advertises the `192.168.10.0/24` route (`ts_advertise_routes`), so with
-     Tailscale on, `http://<HAOS_IP>:8123` reaches HA directly — no Nabu Casa, nothing public.
+     Tailscale on, `http://<HA_IP>:8123` reaches HA directly — no Nabu Casa, nothing public.
 4. In the HA app, set **both** the home and remote URL to the **same** value so it just works
-   in either place. Most reliable over Tailscale is the IP (`http://<HAOS_IP>:8123`);
+   in either place. Most reliable over Tailscale is the IP (`http://<HA_IP>:8123`);
    `https://ha.<domain>` also works if MagicDNS split-DNS maps `<CADDY_LOCAL_DOMAIN>` to the box.
 
 No-Tailscale alternatives: Nabu Casa Cloud (paid, one toggle) or a Cloudflare Tunnel + Access —
@@ -140,11 +141,10 @@ but Tailscale is the zero-exposure option you already run.
 
 ## HomeKit (off by default)
 
-Scrypted is built in but **disabled** via a Docker Compose profile, so the live stack is
-Frigate + Caddy (+ HA in its VM). Test that first. The toggle is just the compose profile —
-no extra machinery:
+Scrypted's Quadlet unit is **not installed** unless the `homekit` profile is set, so the live stack is
+Frigate + Caddy (+ the HA container). Test that first. The toggle is just the profile — no extra machinery:
 
-- **Compose:** `docker compose --profile homekit up -d` (or `make homekit`).
+- **On the box:** `COMPOSE_PROFILES="homekit" docker/provision-cameras.sh` (installs the scrypted unit).
 - **Ansible:** set `compose_profiles: [homekit]` in `ansible/group_vars/all.yml`, then `make deploy`.
 
 That brings up Scrypted with iGPU access. The remaining work is the **manual** Scrypted UI

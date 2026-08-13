@@ -14,7 +14,7 @@ Version-controlled HA config. Scope: **Matter + the Frigate cameras**. No Zigbee
    `notify.mobile_app_<device>`.
 3. **Host alerts → phone:** nothing to configure in a hypervisor UI — the Debian+Incus host has
    none. `host_hardening` installs the smartd alert script and the restic timers, which POST
-   directly to `http://<haos-ip>:8123/api/webhook/homelab_alert` (SMART/temperature) and
+   directly to `http://<ha-ip>:8123/api/webhook/homelab_alert` (SMART/temperature) and
    `.../homelab_backup_ok` (backup dead-man's switch). Just make sure those webhook automations
    exist in `packages/monitoring.yaml`.
 - `secrets.yaml.example` — placeholder; real `secrets.yaml` is gitignored.

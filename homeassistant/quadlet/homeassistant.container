@@ -1,0 +1,25 @@
+# Home Assistant (Container). Host networking: HA's discovery + many integrations need LAN mDNS/broadcast
+# (the Incus container is LAN-bridged, so host net = the LAN). Config is the repo's homeassistant/ dir,
+# synced to /opt/homeassistant/config. The recorder DB lives on the NVMe (/nvr), NOT the SATA SSD —
+# see packages/recorder.yaml. Add-on equivalents (Zigbee2MQTT, ESPHome, Node-RED, Whisper/Piper) are
+# added later as their own .container units alongside this one.
+[Unit]
+Description=Home Assistant (Container)
+After=mosquitto.service
+Wants=mosquitto.service
+
+[Container]
+Image=ghcr.io/home-assistant/home-assistant:stable
+ContainerName=homeassistant
+Network=host
+Volume=/opt/homeassistant/config:/config
+Volume=/mnt/nvr/ha:/nvr
+Volume=/etc/localtime:/etc/localtime:ro
+AutoUpdate=registry
+
+[Service]
+Restart=unless-stopped
+TimeoutStartSec=120
+
+[Install]
+WantedBy=default.target

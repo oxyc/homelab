@@ -58,11 +58,11 @@ fi
 
 echo "▶ cross-file consistency"
 if [ -f docker/.env ] && [ -f ansible/group_vars/all.yml ]; then
-  he=$(getenv HAOS_IP docker/.env); hm=$(getenv FRIGATE_MQTT_HOST docker/.env)
-  hg=$(grep -E '^haos_ip:' ansible/group_vars/all.yml | sed -E 's/^haos_ip:[[:space:]]*//; s/[[:space:]]*#.*//; s/"//g')
+  he=$(getenv HA_IP docker/.env); hm=$(getenv FRIGATE_MQTT_HOST docker/.env)
+  hg=$(grep -E '^ha_ip:' ansible/group_vars/all.yml | sed -E 's/^ha_ip:[[:space:]]*//; s/[[:space:]]*#.*//; s/"//g')
   if [ -n "$he" ] && ! printf '%s' "$he" | grep -q 'x\.x'; then
-    [ "$he" = "$hm" ] || bad "HAOS_IP ($he) != FRIGATE_MQTT_HOST ($hm) — both are the HA VM"
-    [ "$he" = "$hg" ] || bad "HAOS_IP ($he, .env) != haos_ip ($hg, group_vars) — keep them equal"
+    [ "$he" = "$hm" ] || bad "HA_IP ($he) != FRIGATE_MQTT_HOST ($hm) — both are the HA container (runs Mosquitto)"
+    [ "$he" = "$hg" ] || bad "HA_IP ($he, .env) != ha_ip ($hg, group_vars) — keep them equal"
   fi
 fi
 

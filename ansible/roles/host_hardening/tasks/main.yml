@@ -123,7 +123,7 @@
     mode: "0755"
     content: |
       #!/bin/sh
-      curl -fsS -m10 -X POST "http://{{ haos_ip }}:8123/api/webhook/homelab_alert" \
+      curl -fsS -m10 -X POST "http://{{ ha_ip }}:8123/api/webhook/homelab_alert" \
         -H 'Content-Type: application/json' \
         -d "{\"message\": \"SMART: $SMARTD_MESSAGE ($SMARTD_DEVICE)\"}" || true
 

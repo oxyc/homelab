@@ -22,9 +22,8 @@ all:
     app_ip: ""                         # empty = DHCP (gondola is reached via its Cloudflare tunnel)
     app_gw: 192.168.x.1                # LAN gateway (only used when app_ip is set, e.g. den)
 
-    # FUTURE camera stack (cameras_enabled) — an Incus container w/ iGPU passthrough (Frigate/
-    # Scrypted/Caddy) + Home Assistant OS as an Incus VM. Not deployed on this box yet.
-    haos_vmname: haos
+    # FUTURE (cameras_enabled / ha_enabled) — all containers (podman + Quadlet), no VM. Not deployed yet.
+    ha_ip: 192.168.x.x                 # HA container LAN IP (Home Assistant + Mosquitto)
     docker_ctname: cameras             # Incus container name for the camera stack
     docker_lxc_ip: 192.168.x.x         # static LAN IP for the camera container (VLAN10, e.g. .10.10)
     docker_lxc_gw: 192.168.x.1         # its gateway (+ DNS)

@@ -1,0 +1,42 @@
+# FUTURE (ha_enabled): Home Assistant (Container) + Mosquitto as rootful podman + Quadlet inside an
+# unprivileged Incus container — same shape as gondola/den/cameras (one runtime; config-as-code;
+# rebuildable from git). NOT deployed on this box yet and NOT yet validated on the hardware. The box
+# stays incus-base (no qemu — HA is a container now, not a VM). Backups: `incus export` +
+# restic→R2 of the HA config dir (see restic_backup). The recorder DB lives on the NVMe, not the SATA SSD.
+- name: Check if the HA container exists
+  ansible.builtin.command: "incus list {{ ha_ctname }} --format csv -c n"
+  register: ha_exists
+  changed_when: false
+
+- name: Create the HA container (nested podman, autostart)
+  ansible.builtin.command: >-
+    incus launch images:debian/13 {{ ha_ctname }}
+    -c security.nesting=true
+    -c security.syscalls.intercept.mknod=true
+    -c security.syscalls.intercept.setxattr=true
+    -c boot.autostart=true
+  when: ha_ctname not in ha_exists.stdout
+  changed_when: true
+
+# HA's recorder DB is a continuous SSD writer; put it on the high-endurance NVMe (not the SATA SSD),
+# the same way Frigate recordings are. The provisioner points recorder db_url here.
+- name: Mount the NVMe into the HA container (recorder DB target)
+  ansible.builtin.command: "incus config device add {{ ha_ctname }} nvr disk source={{ nvr_mount }} path=/mnt/nvr"
+  when: ha_ctname not in ha_exists.stdout
+  changed_when: true
+
+- name: Give the HA container a fixed LAN IP (so the app + Frigate reach HA/MQTT; mDNS discovery)
+  ansible.builtin.command: "incus config device add {{ ha_ctname }} eth0 nic nictype=bridged parent=vmbr0 ipv4.address={{ ha_ip }}"
+  when:
+    - ha_ctname not in ha_exists.stdout
+    - ha_ip is defined and ha_ip | length > 0
+  changed_when: true
+
+- name: Sync the HA sources (config + Quadlet units + provisioner) into the container
+  ansible.builtin.command: "incus file push -r -q {{ homeassistant_src }} {{ ha_ctname }}/root/"
+  changed_when: true
+
+- name: Provision podman + HA + Mosquitto inside the container
+  ansible.builtin.command: >-
+    incus exec {{ ha_ctname }} -- bash /root/homeassistant/provision-ha.sh
+  changed_when: true

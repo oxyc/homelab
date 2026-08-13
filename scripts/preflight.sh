@@ -22,7 +22,7 @@ docker build -q -t homelab-caddy:2 docker/caddy >/dev/null 2>&1 \
 && docker run --rm -v "$PWD/docker/caddy/Caddyfile":/Caddyfile:ro \
    -e CADDY_LOCAL_DOMAIN=h.example.com -e ACME_EMAIL=you@example.com \
    -e CLOUDFLARE_API_TOKEN=0123456789abcdef0123456789abcdef01234567 \
-   -e HAOS_IP=10.0.0.1 -e SCRYPTED_HOST=10.0.0.3 \
+   -e HA_IP=10.0.0.1 -e SCRYPTED_HOST=10.0.0.3 \
    homelab-caddy:2 caddy validate --adapter caddyfile --config /Caddyfile >/dev/null 2>&1 \
 && echo "  ✓ caddy" || fail=1
 

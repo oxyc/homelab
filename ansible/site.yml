@@ -2,8 +2,8 @@
 #   ansible-playbook site.yml --tags host        # Debian base + Incus + hardening
 #   ansible-playbook site.yml --tags app         # the podman-capable app container(s)
 #   ansible-playbook site.yml --tags backup
-#   ansible-playbook site.yml --tags haos        # FUTURE (haos_enabled): HAOS as an Incus VM
-#   ansible-playbook site.yml --tags docker      # FUTURE (cameras_enabled): camera stack under Incus
+#   ansible-playbook site.yml --tags ha          # FUTURE (ha_enabled): Home Assistant Container + Mosquitto
+#   ansible-playbook site.yml --tags cameras     # FUTURE (cameras_enabled): camera stack (podman + Quadlet)
 # Always dry-run first on the real box:  --check --diff
 #
 # The host is plain Debian 13 + Incus (no Proxmox). No PVE API is contacted — guests are managed
@@ -22,9 +22,9 @@
     - role: incus_app          # OPT-IN (app_enabled): a bare isolated podman-capable container (its app self-provisions)
       tags: [app]
       when: app_enabled | default(false)
-    - role: haos_vm            # FUTURE (haos_enabled): Home Assistant OS as an Incus KVM VM (pulls the full `incus`+qemu)
-      tags: [haos]
-      when: haos_enabled | default(false)
+    - role: ha_container       # FUTURE (ha_enabled): Home Assistant Container + Mosquitto (podman + Quadlet) in an Incus container
+      tags: [ha]
+      when: ha_enabled | default(false)
     - role: camera_container   # FUTURE (cameras_enabled): camera stack (Frigate/Scrypted/Caddy) as an Incus container w/ gpu (podman + Quadlet)
       tags: [cameras]
       when: cameras_enabled | default(false)

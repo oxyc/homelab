@@ -1,0 +1,20 @@
+# Mosquitto MQTT broker — the bridge between Frigate (publishes detections) and HA (subscribes). This
+# is the one HAOS "add-on" Frigate strictly needs; as a container it's ~15 MB. Host networking so it
+# listens on the HA container's LAN IP:1883 (Frigate, in the camera container, connects to ha_ip:1883;
+# HA reaches it on localhost). LAN-only + anonymous (not internet-exposed) — add mosquitto_passwd auth
+# via mosquitto.conf if you ever want it.
+[Unit]
+Description=Mosquitto MQTT broker (Frigate <-> HA)
+
+[Container]
+Image=docker.io/library/eclipse-mosquitto:2
+ContainerName=mosquitto
+Network=host
+Volume=/opt/homeassistant/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+Volume=/opt/homeassistant/mosquitto/data:/mosquitto/data
+
+[Service]
+Restart=unless-stopped
+
+[Install]
+WantedBy=default.target

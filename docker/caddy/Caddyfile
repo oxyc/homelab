@@ -13,7 +13,7 @@
 
 	@ha host ha.{$CADDY_LOCAL_DOMAIN}
 	handle @ha {
-		reverse_proxy {$HAOS_IP}:8123
+		reverse_proxy {$HA_IP}:8123
 	}
 
 	@frigate host frigate.{$CADDY_LOCAL_DOMAIN}

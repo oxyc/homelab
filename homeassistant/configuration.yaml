@@ -1,4 +1,22 @@
-# Add this include to your real /config/configuration.yaml (keep default_config etc.).
-# Automations/helpers then live as code under packages/.
+# Home Assistant (Container) — config-as-code. This is the container's /config/configuration.yaml
+# (synced by provision-ha.sh). Automations/helpers live under packages/ (cameras.yaml, monitoring.yaml).
+default_config:
+
 homeassistant:
   packages: !include_dir_named packages
+
+# Recorder DB on the NVMe (high-endurance), NOT the SATA SSD — HA logs every state change, which is a
+# continuous SSD writer once you have entities. Excluding chatty entities keeps writes low (same
+# SSD-wear care as the rest of the box). Tune the excludes to your actual entities as you add them.
+recorder:
+  db_url: sqlite:////nvr/home-assistant_v2.db
+  purge_keep_days: 10
+  exclude:
+    domains:
+      - updater
+    entity_globs:
+      - sensor.*_uptime
+      - sensor.*_last_seen
+    entities:
+      - sensor.date
+      - sensor.time

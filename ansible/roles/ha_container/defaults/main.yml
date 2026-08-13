@@ -1,0 +1,14 @@
+---
+# ha_container defaults — Home Assistant (Container) + Mosquitto as rootful podman + Quadlet inside an
+# unprivileged Incus container. Replaces the old HAOS-VM approach: HA config is code (homeassistant/ in
+# this repo), so it's fully ansible-provisioned + rebuildable from git (HAOS was UI/onboarding-driven),
+# ~500 MB instead of a 2 GB VM, and the box stays incus-base (NO qemu). Add-ons (Zigbee2MQTT, ESPHome,
+# Node-RED, Whisper/Piper, …) are added later as their own Quadlet containers — each stays config-as-code.
+#
+# Opt-in: only provisioned when ha_enabled: true.
+ha_enabled: false
+
+ha_ctname: ha
+homeassistant_src: "{{ role_path }}/../../../homeassistant"   # repo homeassistant/ dir, synced into the container
+# ha_ip / ha_gw come from inventory (a fixed LAN IP: the app + Frigate reach HA/MQTT at it; host
+# networking inside the container lets HA's mDNS discovery see the LAN).

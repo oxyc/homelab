@@ -7,8 +7,9 @@
     state: present
     update_cache: true
   # The full `incus` package (VM support) is deliberately NOT installed here — it pulls
-  # qemu-system-x86. Add it only when a KVM guest (the HAOS VM) is actually deployed; see
-  # the haos_vm role. Containers (gondola, den, future Frigate/Scrypted) need only incus-base.
+  # qemu-system-x86, and nothing here uses a VM: every guest (gondola, den, future Frigate/Scrypted,
+  # and Home Assistant — now the ha_container role, not a HAOS VM) is a container. So incus-base is
+  # all this box ever needs.
 
 - name: Ensure incus is enabled + running (so boot.autostart guests come up on boot)
   ansible.builtin.systemd:

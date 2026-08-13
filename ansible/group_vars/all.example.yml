@@ -9,14 +9,12 @@ app_enabled: false
 # --- FUTURE: camera stack + Home Assistant (not deployed on this box yet) ---
 # The camera stack (Frigate/Scrypted/Caddy) will run as an UNPRIVILEGED Incus container with an
 # Incus `gpu` device (renderD128), and Home Assistant OS as an Incus KVM VM. Both are opt-in and
-# not yet validated on hardware; enabling them also requires installing the full `incus` package
-# (VM support / qemu) on the host.
+# not yet validated on hardware. Both are containers (podman + Quadlet) — no VM, so the box stays
+# incus-base (no qemu).
 cameras_enabled: false
-haos_enabled: false
-# HomeKit/Scrypted is a compose profile inside the camera container (empty = Frigate + Caddy only).
+ha_enabled: false
+# HomeKit/tunnel are opt-in Quadlet units in the camera container (empty = Frigate + Caddy only).
 compose_profiles: []
-# HAOS image to download for the VM (pin a version).
-haos_image_url: "https://github.com/home-assistant/operating-system/releases/download/14.0/haos_ova-14.0.qcow2.xz"
 
 # Tailscale auth key: NOT stored here. Read from the same .env (TS_AUTHKEY) so all
 # secrets live in one Bitwarden note. Export it before running, or pass -e ts_authkey=...
@@ -26,7 +24,7 @@ ts_hostname: pve              # tailnet node name -> `ssh root@pve`
 # Host hardening
 admin_user: oxyc
 admin_github_user: oxyc        # SSH keys auto-pulled from https://github.com/<user>.keys
-haos_ip: 192.168.x.x           # HA VM IP (future) — host alerts (smartd) POST to its webhook
+ha_ip: 192.168.x.x           # HA container IP (future) — host alerts (smartd) POST to its webhook
 
 # Advertise the home LAN so the phone reaches HA/Frigate/cameras through the host
 # (the single "way in"). Set to your real LAN CIDR; approve via tailscale/acl.hujson.
