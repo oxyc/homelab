@@ -25,8 +25,8 @@
     - role: haos_vm            # FUTURE (haos_enabled): Home Assistant OS as an Incus KVM VM (pulls the full `incus`+qemu)
       tags: [haos]
       when: haos_enabled | default(false)
-    - role: docker_host        # FUTURE (cameras_enabled): camera stack (Frigate/Scrypted/Caddy) as an Incus container w/ gpu
-      tags: [docker, cameras]
+    - role: camera_container   # FUTURE (cameras_enabled): camera stack (Frigate/Scrypted/Caddy) as an Incus container w/ gpu (podman + Quadlet)
+      tags: [cameras]
       when: cameras_enabled | default(false)
     - role: restic_backup      # restic -> offsite systemd timer (HA backups) — part of the camera/HA stack
       tags: [backup]

@@ -18,7 +18,7 @@ The camera stack will run as an **unprivileged Incus container with an Incus `gp
 
 ```
 ansible/   # site.yml + roles: incus_host, host_hardening, tailscale, incus_app,
-           #                    haos_vm (future), docker_host (future), restic_backup, reolink_cameras
+           #                    haos_vm (future), camera_container (future), restic_backup, reolink_cameras
 docker/    # podman Quadlet units (frigate + caddy + scrypted, shared /dev/dri) + configs + provision-cameras.sh — the future camera container
 ```
 
@@ -58,7 +58,7 @@ ansible-playbook site.yml --tags host       # then: haos, docker, backup  (or `m
 Camera stack (podman + Quadlet, run inside the Incus `cameras` container — deployed by ansible):
 
 ```bash
-# on the box, inside the cameras container (or via the docker_host role):
+# on the box, inside the cameras container (or via the camera_container role):
 COMPOSE_PROFILES="homekit tunnel" docker/provision-cameras.sh   # omit profiles for frigate+caddy only
 ```
 

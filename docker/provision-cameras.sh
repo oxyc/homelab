@@ -3,7 +3,7 @@
 # INSIDE the unprivileged Incus `cameras` container. Idempotent; run as root from a synced copy of the
 # repo's docker/ dir. Mirrors the den stack's podman-Quadlet shape (den/deploy/provision-podman.sh).
 #
-# The Incus container + `gpu` device + /mnt/nvr mount are created by the ansible docker_host role;
+# The Incus container + `gpu` device + /mnt/nvr mount are created by the ansible camera_container role;
 # THIS script sets up podman + the units inside it. NOT YET VALIDATED ON HARDWARE — the camera stack
 # is not deployed. Enable optional services with COMPOSE_PROFILES (space/comma list):
 #   COMPOSE_PROFILES="homekit tunnel" ./provision-cameras.sh

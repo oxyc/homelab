@@ -1,5 +1,5 @@
-# docker_host defaults
+# camera_container defaults (the Incus container that runs the podman camera stack)
 homelab_dir: /opt/homelab
-compose_src: "{{ role_path }}/../../../docker"   # repo docker/ dir (real + molecule)
+compose_src: "{{ role_path }}/../../../docker"   # repo docker/ dir synced into the container
 compose_profiles: []          # add 'homekit' (in group_vars) to include Scrypted
 molecule_test: false          # legacy guard; the molecule scenario was removed in the Incus migration
