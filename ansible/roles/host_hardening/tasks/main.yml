@@ -9,6 +9,14 @@
     name: sudo
     state: present
 
+# De-Proxmox leftover: /etc/cron.d/vzdump is a dangling symlink to /etc/pve/vzdump.cron (the pmxcfs
+# cluster FS + vzdump binary are gone with Proxmox). cron re-reads /etc/cron.d every MINUTE and logs
+# "CAN'T OPEN SYMLINK" each time → ~1440 journal lines/day + a cron→root mail. Remove the cruft.
+- name: Remove the dangling Proxmox vzdump cron symlink
+  ansible.builtin.file:
+    path: /etc/cron.d/vzdump
+    state: absent
+
 - name: Create admin user (sudo group)
   ansible.builtin.user:
     name: "{{ admin_user }}"
