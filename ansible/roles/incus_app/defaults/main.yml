@@ -7,6 +7,10 @@
 # Opt-in: only provisioned when true.
 app_enabled: false
 
+# Legacy molecule guard used by this role's tasks. Defined here (not only in docker_host/defaults) so
+# incus_app doesn't rely on another role's defaults leaking play-wide.
+molecule_test: false
+
 app_name: gondola
 # app_ip / app_gw come from inventory. Leave app_ip empty for a tunnel-only app (DHCP); set it for
 # an app whose clients target a fixed LAN IP (e.g. den -> 192.168.x.193).

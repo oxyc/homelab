@@ -6,5 +6,3 @@ skip_list:
   - no-handler                   # `command`/`apt`/`systemd` gated on `when: <prev> is changed`
                                  # (grub regen, daemon-reexec, apt refresh) — clearer than handlers here
   - yaml[line-length]            # long ExecStart/URL/unit lines are fine — matches .yamllint (disabled)
-warn_list:
-  - args[module]                 # proxmox api_host/user supplied at runtime via inventory

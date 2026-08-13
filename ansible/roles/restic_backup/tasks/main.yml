@@ -70,6 +70,7 @@
     - name: restic-backup.service
       content: |
         [Service]
+        Type=oneshot
         EnvironmentFile=/opt/homelab/.env
         ExecStart=/usr/bin/restic backup /backups/ha --tag ha
         ExecStartPost=/usr/bin/restic forget --keep-daily 7 --keep-weekly 4 --prune
@@ -88,6 +89,7 @@
     - name: restic-check.service
       content: |
         [Service]
+        Type=oneshot
         EnvironmentFile=/opt/homelab/.env
         ExecStart=/bin/sh -c 'restic check --read-data-subset=10%% || { curl -fsS -m10 -X POST http://$HAOS_IP:8123/api/webhook/homelab_alert -H "Content-Type: application/json" -d "{\"message\": \"restic check FAILED — backup repo may be corrupt\"}"; exit 1; }'
     - name: restic-check.timer
