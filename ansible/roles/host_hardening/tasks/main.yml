@@ -142,7 +142,13 @@
       content: |
         [Timer]
         OnBootSec=2min
-        OnUnitActiveSec=15min
+        # 30min, not 15: this ping is disk-write-free and ~60ms, so it's the cheapest wake on the box —
+        # halving it (96 -> 48/day) is idle-tidiness, not power. Detecting a dead box within ~30-45min
+        # (ping period + grace) is fine for a home host. NOTE: the hc-ping check's expected period +
+        # grace must be widened to match, or a 30min gap reads as "down". RandomizedDelaySec avoids
+        # phase-locking to the minute with the other host timers.
+        OnUnitActiveSec=30min
+        RandomizedDelaySec=120
         [Install]
         WantedBy=timers.target
   when: lookup('ansible.builtin.env', 'HEALTHCHECK_URL') | length > 0
