@@ -17,6 +17,17 @@
     path: /etc/cron.d/vzdump
     state: absent
 
+# postfix ships enabled and listens on :25 purely to deliver LOCAL system mail (cron/unattended-upgrades
+# reports). Nobody reads local mail on this box, so it's ~15 MB RSS + an open listener for nothing. Mask
+# it. Side effect: mail from cron/etc is discarded (sendmail calls fail quietly) — intended.
+- name: Mask postfix (no local mail consumer; frees RSS + closes :25)
+  ansible.builtin.systemd:
+    name: postfix
+    state: stopped
+    enabled: false
+    masked: true
+  failed_when: false
+
 - name: Create admin user (sudo group)
   ansible.builtin.user:
     name: "{{ admin_user }}"
