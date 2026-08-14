@@ -31,7 +31,7 @@ fi
 # where config.yml's `model.path: /config/model_cache/yolo.onnx` expects it. Recipe adapted from
 # https://docs.frigate.video/configuration/object_detectors (git clone vs BuildKit ADD, for podman).
 # UNTESTED ON HARDWARE. If this build fails, switch config.yml to the ssdlite fallback to boot, re-run.
-MODEL_SIZE=s; IMG_SIZE=320
+MODEL_SIZE=s; IMG_SIZE=640    # 640 = better small/distant detection (far gates); must match config.yml model.width/height
 MODEL_CACHE="$APP/frigate/model_cache"
 mkdir -p "$MODEL_CACHE"
 if [ -f "$MODEL_CACHE/yolo.onnx" ]; then

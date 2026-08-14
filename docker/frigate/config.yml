@@ -29,9 +29,9 @@ detectors:
 # boot, then re-run the provisioner. Export recipe: https://docs.frigate.video/configuration/object_detectors
 model:
   model_type: yolo-generic
-  width: 320
-  height: 320
-  input_tensor: nchw
+  width: 640                        # 640 (not 320): better on small/distant objects — people at the far
+  height: 640                       # gates ~20m down the yard. ~3x inference vs 320 but trivial at 3 fps
+  input_tensor: nchw                # / 2 cams on this iGPU. MUST match provision-cameras.sh IMG_SIZE.
   input_dtype: float
   path: /config/model_cache/yolo.onnx
   labelmap_path: /labelmap/coco-80.txt
