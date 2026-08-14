@@ -22,14 +22,30 @@ detectors:
     type: openvino
     device: GPU
 
-# Frigate bundles this OpenVINO model (ssdlite mobilenet v2, COCO) at /openvino-model in the image.
+# Detection model = YOLOv9-s (COCO-80). Much better than the bundled ssdlite mobiledet on small/distant/
+# occluded objects, for free, on the SAME OpenVINO iGPU (no Coral). YOLOv9 is NOT bundled — the ONNX is
+# user-supplied: generate it once with Frigate's exporter and place it at
+# /opt/homelab/frigate/model_cache/yolo.onnx  (host bind = /config/model_cache).
+# Exact export steps: https://docs.frigate.video/configuration/object_detectors  (provision-cameras.sh
+# can do this on first run). Until the file exists, use the fallback block below (boots out of the box).
 model:
-  width: 300
-  height: 300
-  input_tensor: nhwc
-  input_pixel_format: bgr
-  path: /openvino-model/ssdlite_mobilenet_v2.xml
-  labelmap_path: /openvino-model/coco_91cl_bkgr.txt
+  model_type: yolo-generic
+  width: 320
+  height: 320
+  input_tensor: nchw
+  input_dtype: float
+  path: /config/model_cache/yolo.onnx
+  labelmap_path: /labelmap/coco-80.txt
+
+# Zero-setup fallback (bundled ssdlite mobiledet; lower accuracy). To revert, comment the block above
+# and uncomment this one:
+# model:
+#   width: 300
+#   height: 300
+#   input_tensor: nhwc
+#   input_pixel_format: bgr
+#   path: /openvino-model/ssdlite_mobilenet_v2.xml
+#   labelmap_path: /openvino-model/coco_91cl_bkgr.txt
 
 ffmpeg:
   hwaccel_args: preset-vaapi      # iGPU decode for detect streams (record is copy)
@@ -84,7 +100,8 @@ cameras:
       height: 480
       fps: 3                       # see note above
     objects:
-      track: [person, package]
+      track: [person]           # `package` is NOT a COCO class — stock YOLOv9 won't detect it. Add it
+                                # back once the custom/Frigate+-style model is in (see docs reproduce plan).
     # motion:                         # mask the street/sidewalk beyond your property — draw in the 0.17 UI
     #   mask:
     #     - ...
@@ -105,6 +122,17 @@ snapshots:
   enabled: true
   retain:
     default: 14
+
+# --- Enrichments: free, built into Frigate 0.16+, run locally — no Frigate+, no Coral ---
+face_recognition:
+  enabled: true
+  model_size: small        # FaceNet on CPU (i5-8500T has AVX2). Bump to `large` (ArcFace on the iGPU)
+                           # for better accuracy once the stack is stable. Add faces in the Frigate UI →
+                           # it labels a detected `person` as e.g. "Andrea".
+
+lpr:
+  enabled: true            # built-in YOLOv9 plate detector + PaddleOCR. Do NOT add `license_plate` to
+                           # tracked objects (only Frigate+/native-plate models want that).
 
 birdseye:
   enabled: true
