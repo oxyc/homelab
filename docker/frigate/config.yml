@@ -79,7 +79,10 @@ cameras:
       height: 480
       fps: 3                       # 5->3: motion+detect work scales with fps (~40% less CPU) — plenty for a home NVR
     objects:
-      track: [person, car, dog, cat]
+      # Wide net to start (detecting is cheap + motion-gated; filter with zones later). Trim after a
+      # week whatever never fires (likely bus/horse). Add cow/sheep (countryside view) or boat (water
+      # sightline) if relevant. bird = expect volume from the trees → route to detections, not alerts.
+      track: [person, bicycle, car, motorcycle, bus, truck, bird, cat, dog, horse]
     # Motion masks — the cheapest CPU win: mask always-moving/irrelevant regions (road, sky, swaying
     # trees, the burnt-in timestamp) so motion detection stops waking the detector on non-events.
     # In 0.17 draw them in the UI (saves live, no restart), then paste the generated normalized coords
