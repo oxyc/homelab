@@ -14,6 +14,10 @@ Network=cameras.network
 EnvironmentFile=/opt/homelab/.env
 AddDevice=/dev/dri
 ShmSize=256m
+# Recording-segment cache in RAM, NOT on the container overlay (which lives on the SATA SSD via the
+# lvm-thin pool). Frigate buffers every segment here before moving it to the NVMe; on-disk that would be
+# continuous SSD write churn. tmpfs caps at 1G but only uses RAM for what's actually buffered (~16G total).
+Tmpfs=/tmp/cache:size=1000000000
 # Config + Frigate's own state (db, model cache) live on the host bind for easy backup; config.yml is
 # synced there by the provisioner. Recordings are the separate NVMe mount.
 Volume=/opt/homelab/frigate:/config
