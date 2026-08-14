@@ -61,9 +61,16 @@ cameras:
     detect:
       width: 640
       height: 480
-      fps: 5
+      fps: 3                       # 5->3: motion+detect work scales with fps (~40% less CPU) — plenty for a home NVR
     objects:
       track: [person, car, dog, cat]
+    # Motion masks — the cheapest CPU win: mask always-moving/irrelevant regions (road, sky, swaying
+    # trees, the burnt-in timestamp) so motion detection stops waking the detector on non-events.
+    # In 0.17 draw them in the UI (saves live, no restart), then paste the generated normalized coords
+    # here to keep config-as-code:
+    # motion:
+    #   mask:
+    #     - 0,0,0.15,0,0.15,0.08,0,0.08     # example: timestamp corner
 
   doorbell:
     ffmpeg:
@@ -75,9 +82,12 @@ cameras:
     detect:
       width: 640                  # 4:3 doorbell
       height: 480
-      fps: 5
+      fps: 3                       # see note above
     objects:
       track: [person, package]
+    # motion:                         # mask the street/sidewalk beyond your property — draw in the 0.17 UI
+    #   mask:
+    #     - ...
 
 record:
   enabled: true
