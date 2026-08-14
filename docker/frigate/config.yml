@@ -83,13 +83,40 @@ cameras:
       # week whatever never fires (likely bus/horse). Add cow/sheep (countryside view) or boat (water
       # sightline) if relevant. bird = expect volume from the trees → route to detections, not alerts.
       track: [person, bicycle, car, motorcycle, bus, truck, bird, cat, dog, horse]
-    # Motion masks — the cheapest CPU win: mask always-moving/irrelevant regions (road, sky, swaying
-    # trees, the burnt-in timestamp) so motion detection stops waking the detector on non-events.
-    # In 0.17 draw them in the UI (saves live, no restart), then paste the generated normalized coords
-    # here to keep config-as-code:
+    # --- Zones + alert routing (draw coords in the 0.17 UI, paste back; keep commented until then) ---
+    # Property vocabulary = physical places, camera-agnostic (same names on every camera that sees them):
+    #   platform  = the raised deck by the house (walkways + patio). Inner sanctum.
+    #   yard      = the ~20m walk-through ground between deck and fence. Transit; we never dwell here.
+    #   gate_car  = the 3m vehicle gate (deliveries/vehicles stop here).
+    #   gate_ped  = the 1.2m pedestrian gate (visitors).
+    # Alert rule: DECK = face-based (unknown person -> alert immediately; we legitimately loiter on the
+    # patio, so NO loiter timer here). YARD/GATES = loiter-based (brief crossing is normal; lingering ->
+    # alert). Known faces are suppressed in the HA notification layer, not here.
+    # zones:
+    #   platform:
+    #     coordinates: 0,0,0.4,0,0.4,0.3,0,0.3      # TODO draw in UI
+    #     loitering_time: 0
+    #   yard:
+    #     coordinates: ...                          # TODO
+    #     loitering_time: 30                        # ignore transit; count only if they linger 30s
+    #   gate_car:
+    #     coordinates: ...                          # TODO
+    #     loitering_time: 0
+    #   gate_ped:
+    #     coordinates: ...                          # TODO
+    #     loitering_time: 0
+    # review:
+    #   alerts:
+    #     required_zones: [platform, gate_car, gate_ped]
+    #   detections:
+    #     required_zones: [yard]
+    #
+    # Motion masks (cut noise + CPU): mask BEYOND the fence (road, across-street), the tree canopy (wind),
+    # and the burnt-in timestamp. NOTE: a motion mask stops detection, NOT recording — to actually blank
+    # the neighbor out of the video, use the Reolink CAMERA-side privacy mask (see docs).
     # motion:
     #   mask:
-    #     - 0,0,0.15,0,0.15,0.08,0,0.08     # example: timestamp corner
+    #     - 0,0,0.15,0,0.15,0.08,0,0.08            # example: timestamp corner
 
   doorbell:
     ffmpeg:
@@ -105,9 +132,20 @@ cameras:
     objects:
       track: [person]           # `package` is NOT a COCO class — stock YOLOv9 won't detect it. Add it
                                 # back once the custom/Frigate+-style model is in (see docs reproduce plan).
-    # motion:                         # mask the street/sidewalk beyond your property — draw in the 0.17 UI
+    # --- Doorbell: mask everything past ~4m (the drop-off, 1m path, jasmin fence, neighbor lot) so the
+    # only live area is the door approach. Any person left in-frame = at the door. Name that remaining
+    # area `platform` (same deck as the corner cam) so "someone's at the house" is one cross-camera fact.
+    # For real privacy over the neighbor's lot, use the Reolink camera-side privacy mask, not just this.
+    # motion:
     #   mask:
-    #     - ...
+    #     - ...                                     # neighbor lot + everything past the platform edge
+    # zones:
+    #   platform:
+    #     coordinates: ...                          # the 4m door approach (optional — mask alone works)
+    #     loitering_time: 0
+    # review:
+    #   alerts:
+    #     required_zones: [platform]
 
 record:
   enabled: true
