@@ -27,6 +27,43 @@ if [ ! -f "$APP/.env" ]; then
   else log "WARN: no $APP/.env — copy docker/.env (from the Bitwarden homelab-env note) into place"; fi
 fi
 
+# Detection model: Frigate bundles no YOLOv9, so build the ONNX once (idempotent) into model_cache/,
+# where config.yml's `model.path: /config/model_cache/yolo.onnx` expects it. Recipe adapted from
+# https://docs.frigate.video/configuration/object_detectors (git clone vs BuildKit ADD, for podman).
+# UNTESTED ON HARDWARE. If this build fails, switch config.yml to the ssdlite fallback to boot, re-run.
+MODEL_SIZE=s; IMG_SIZE=320
+MODEL_CACHE="$APP/frigate/model_cache"
+mkdir -p "$MODEL_CACHE"
+if [ -f "$MODEL_CACHE/yolo.onnx" ]; then
+  log "detection model: yolo.onnx already present — skipping build"
+else
+  log "detection model: building YOLOv9-$MODEL_SIZE ONNX (one-time; pulls torch + weights, ~several min)"
+  _ctx="$(mktemp -d)"
+  podman build --build-arg MODEL_SIZE="$MODEL_SIZE" --build-arg IMG_SIZE="$IMG_SIZE" \
+    --output "type=local,dest=$MODEL_CACHE" -f- "$_ctx" <<'DOCKERFILE'
+FROM python:3.11 AS build
+RUN apt-get update && apt-get install --no-install-recommends -y cmake libgl1 git && rm -rf /var/lib/apt/lists/*
+COPY --from=ghcr.io/astral-sh/uv:0.10.4 /uv /bin/
+WORKDIR /yolov9
+RUN git clone --depth 1 https://github.com/WongKinYiu/yolov9.git .
+RUN uv pip install --system -r requirements.txt
+RUN uv pip install --system onnx==1.18.0 onnxruntime onnx-simplifier==0.4.* onnxscript
+ARG MODEL_SIZE
+ADD https://github.com/WongKinYiu/yolov9/releases/download/v0.1/yolov9-${MODEL_SIZE}-converted.pt yolov9-${MODEL_SIZE}.pt
+RUN sed -i "s/ckpt = torch.load(attempt_download(w), map_location='cpu')/ckpt = torch.load(attempt_download(w), map_location='cpu', weights_only=False)/g" models/experimental.py
+ARG IMG_SIZE
+RUN python3 export.py --weights ./yolov9-${MODEL_SIZE}.pt --imgsz ${IMG_SIZE} --simplify --include onnx
+FROM scratch
+ARG MODEL_SIZE
+ARG IMG_SIZE
+COPY --from=build /yolov9/yolov9-${MODEL_SIZE}.onnx /yolov9-${MODEL_SIZE}-${IMG_SIZE}.onnx
+DOCKERFILE
+  mv "$MODEL_CACHE/yolov9-$MODEL_SIZE-$IMG_SIZE.onnx" "$MODEL_CACHE/yolo.onnx"
+  rm -rf "$_ctx"
+  podman builder prune -f >/dev/null 2>&1 || true    # reclaim the ~5GB one-shot build cache
+  log "detection model: wrote $MODEL_CACHE/yolo.onnx"
+fi
+
 log "build the custom Caddy image (Caddy + cloudflare-dns module)"
 podman build -t localhost/homelab-caddy:latest "$SRC/caddy"
 

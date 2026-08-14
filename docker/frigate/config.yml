@@ -23,11 +23,10 @@ detectors:
     device: GPU
 
 # Detection model = YOLOv9-s (COCO-80). Much better than the bundled ssdlite mobiledet on small/distant/
-# occluded objects, for free, on the SAME OpenVINO iGPU (no Coral). YOLOv9 is NOT bundled — the ONNX is
-# user-supplied: generate it once with Frigate's exporter and place it at
-# /opt/homelab/frigate/model_cache/yolo.onnx  (host bind = /config/model_cache).
-# Exact export steps: https://docs.frigate.video/configuration/object_detectors  (provision-cameras.sh
-# can do this on first run). Until the file exists, use the fallback block below (boots out of the box).
+# occluded objects, for free, on the SAME OpenVINO iGPU (no Coral). YOLOv9 isn't bundled — the ONNX is
+# generated ONCE by provision-cameras.sh (idempotent) into /opt/homelab/frigate/model_cache/yolo.onnx
+# (host bind = /config/model_cache). If that build ever fails, switch to the ssdlite fallback below to
+# boot, then re-run the provisioner. Export recipe: https://docs.frigate.video/configuration/object_detectors
 model:
   model_type: yolo-generic
   width: 320
