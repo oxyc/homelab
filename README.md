@@ -35,7 +35,7 @@ won't deploy.
 | `docker/.env.example` | `docker/.env` | secrets + IPs — pull from your password manager: `bw get notes homelab-env > docker/.env` |
 | `ansible/group_vars/all.example.yml` | `ansible/group_vars/all.yml` | mostly defaults; set `ha_ip` to the HA container |
 | `ansible/inventory.example.yml` | `ansible/inventory.yml` | Debian host IP, container IP + gateway |
-| `tailscale/acl.hujson.example` | `tailscale/acl.hujson` | your tailnet login + LAN CIDR (then paste into the Tailscale console) |
+| `tailscale/acl.hujson.example` | `tailscale/acl.hujson` | tailnet policy (`grants` + SSH); generic single-user, nothing to fill — paste into the console |
 | `proxmox/answer.toml.example` | `proxmox/answer.toml` | *(optional)* unattended install: hashed root pw + email |
 
 - Secrets never live in the Ansible files — e.g. `ts_authkey` is an `env` lookup into `docker/.env`,
@@ -101,10 +101,10 @@ ssh oxyc@pve
 ssh root@pve
 ```
 
-> Tailscale SSH: if the tailnet ACL has the admin→host rule set to `check` (the default in
-> `tailscale/acl.hujson.example`), the first `ssh …@pve` prints a
-> `login.tailscale.com/a/…` URL you must open once to authenticate. For non-interactive use
-> (Ansible over the tailnet) set that rule to `accept`, or run Ansible over the LAN IP instead.
+> Tailscale SSH: the SSH rule in `tailscale/acl.hujson.example` defaults to `accept` (no re-auth
+> prompt — the pragmatic choice for a single-user, tailnet-only box). If you switch it to `check`,
+> the first `ssh …@pve` prints a `login.tailscale.com/a/…` URL to authenticate and re-auth recurs
+> every 12h — a *custom* re-auth period (e.g. weekly) needs Tailscale Premium/Enterprise.
 
 **Ansible** runs from your workstation over whichever address is in `ansible/inventory.yml`
 (`ansible_host` = the LAN IP now, `pve` once you're off-site). Always export the env first:

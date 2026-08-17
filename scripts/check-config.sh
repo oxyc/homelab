@@ -81,7 +81,7 @@ fi
 if [ -f tailscale/acl.hujson ]; then
   grep -qE 'example\.com|192\.168\.x' tailscale/acl.hujson && bad "tailscale/acl.hujson still has placeholder login/CIDR"
 else
-  echo "  i  copy tailscale/acl.hujson.example -> tailscale/acl.hujson, fill login+CIDR, paste into Tailscale"
+  echo "  i  copy tailscale/acl.hujson.example -> tailscale/acl.hujson, then paste into Tailscale (generic policy — nothing to fill)"
 fi
 echo
 if [ "$fail" = 0 ]; then echo "✅ config complete — safe to deploy"; else echo "❌ fix the above before deploying"; fi
