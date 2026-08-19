@@ -10,11 +10,15 @@
     content: |
       #!/bin/sh
       set -e
-      d={{ nvr_mount }}/incus-exports
+      d={{ nvr_mount }}/backups
       mkdir -p "$d"
-      incus export {{ app_name }} "$d/{{ app_name }}-$(date +%Y%m%d-%H%M%S).tar.gz" --optimized-storage
+      # --instance-only: exclude the container's own snapshots from the export. The daily `incus snapshot`
+      # (7-day retention) already provides local point-in-time recovery, so bundling the whole snapshot
+      # history into every daily tarball just bloats it (observed: gondola export climbing 12->28GB as
+      # snapshots accumulated). This keeps each export ~current-instance-sized.
+      incus export {{ app_name }} "$d/{{ app_name }}-$(date +%Y%m%d-%H%M%S).tar.zst" --optimized-storage --compression zstd --instance-only
       # keep the last {{ app_backup_keep }} exports
-      ls -1t "$d"/{{ app_name }}-*.tar.gz | tail -n +{{ app_backup_keep + 1 }} | xargs -r rm -f
+      ls -1t "$d"/{{ app_name }}-*.tar.zst | tail -n +{{ app_backup_keep + 1 }} | xargs -r rm -f
 
 - name: Install the backup service + timer for {{ app_name }}
   ansible.builtin.copy:
