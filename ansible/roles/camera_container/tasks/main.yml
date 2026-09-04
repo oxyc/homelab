@@ -16,6 +16,7 @@
     -c security.syscalls.intercept.mknod=true
     -c security.syscalls.intercept.setxattr=true
     -c boot.autostart=true
+    -c boot.host_shutdown_timeout=120
   when:
     - not molecule_test
     - docker_ctname not in cam_exists.stdout

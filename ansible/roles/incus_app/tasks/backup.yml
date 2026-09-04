@@ -16,6 +16,14 @@
       # (7-day retention) already provides local point-in-time recovery, so bundling the whole snapshot
       # history into every daily tarball just bloats it (observed: gondola export climbing 12->28GB as
       # snapshots accumulated). This keeps each export ~current-instance-sized.
+      #
+      # Consistency: this exports the LIVE rootfs (optimized-storage dumps the thin volume; on lvm-thin it
+      # is near-instant, so the write window is tiny). A torn tarball is still CRASH-CONSISTENT on restore —
+      # the guests' stores are SQLite-WAL / atomic-rename, so an import boots and recovers exactly like a
+      # power-loss, losing at most the last txn (acceptable). The 7-day atomic `incus snapshot` ring is the
+      # clean point-in-time recovery path. We deliberately do NOT snapshot+copy+export a throwaway instance
+      # for a "perfect" tarball: that would add nightly full-volume write churn on a longevity-sensitive SSD
+      # for a loss-only, WAL-recoverable edge case.
       incus export {{ app_name }} "$d/{{ app_name }}-$(date +%Y%m%d-%H%M%S).tar.zst" --optimized-storage --compression zstd --instance-only
       # keep the last {{ app_backup_keep }} exports
       ls -1t "$d"/{{ app_name }}-*.tar.zst | tail -n +{{ app_backup_keep + 1 }} | xargs -r rm -f

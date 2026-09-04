@@ -1,0 +1,23 @@
+---
+# NUT (Network UPS Tools), STANDALONE mode: the box monitors a locally-attached UPS and runs a clean
+# `shutdown` on low battery, so a mains outage becomes an ORDERLY shutdown (Incus runs its 600s stop
+# path; guests drain + checkpoint their WAL) instead of the hard-kill every power cut is today.
+#
+# The box is NOT yet physically wired to the UPS, so this role is config-ready but gated OFF
+# (ups_enabled=false in site.yml). Once the UPS is plugged in: confirm the driver/port with
+# `nut-scanner -U` on the host, set the values below (and ups_enabled=true), then run
+# `ansible-playbook site.yml --tags ups`.
+#
+# Driver/port depend on the model. `usbhid-ups` + `auto` covers most USB-HID UPSes (APC, CyberPower,
+# Eaton via USB). A serial UPS uses apcsmart/genericups + a /dev/ttyS* port.
+ups_driver: usbhid-ups
+ups_port: auto
+ups_desc: "Homelab UPS"
+
+# Local-only credential upsmon uses to reach upsd over 127.0.0.1:3493 — it never leaves the box, so this
+# is not a network-exposed secret. Override via inventory/vault if you like; the default is a placeholder.
+ups_monitor_password: changeme
+
+# What upsd tells upsmon to run when the battery hits low/forced-shutdown. `+0` = shut down now: batteries
+# are sized for minutes, so shut down promptly and cleanly rather than riding the battery to empty.
+ups_shutdown_cmd: "/sbin/shutdown -h +0"

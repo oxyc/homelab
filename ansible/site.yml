@@ -17,6 +17,9 @@
       tags: [host]
     - role: host_hardening     # admin user + sudo, SSH key, sshd hardening, nftables lockdown, watchdog, auto-updates
       tags: [host, hardening]
+    - role: ups                # OPT-IN (ups_enabled): NUT monitors the local UPS → clean shutdown on low battery.
+      tags: [host, ups]        # Config-ready but OFF: enable only AFTER the UPS is physically connected (see role defaults).
+      when: ups_enabled | default(false)
     - role: tailscale          # remote SSH from phone over the tailnet
       tags: [tailscale, remote]
     - role: incus_app          # OPT-IN (app_enabled): a bare isolated podman-capable container (its app self-provisions)

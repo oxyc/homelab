@@ -1,0 +1,6 @@
+# Managed by Ansible (ups role). One [ups] section = the local UPS. After connecting the UPS run
+# `nut-scanner -U` on the host to confirm the right driver/port, then set ups_driver/ups_port.
+[ups]
+    driver = {{ ups_driver }}
+    port = {{ ups_port }}
+    desc = "{{ ups_desc }}"

@@ -1,0 +1,16 @@
+---
+# Re-run the driver enumerator so a changed ups.conf regenerates/restarts the nut-driver@<name> instance.
+- name: Restart nut-driver
+  ansible.builtin.systemd:
+    name: nut-driver-enumerator.service
+    state: restarted
+
+- name: Restart nut-server
+  ansible.builtin.systemd:
+    name: nut-server.service
+    state: restarted
+
+- name: Restart nut-monitor
+  ansible.builtin.systemd:
+    name: nut-monitor.service
+    state: restarted

@@ -1,0 +1,76 @@
+---
+# NUT standalone: upsd (talks to the UPS driver) + upsmon (triggers the clean shutdown) on this one box.
+# See defaults/main.yml for the "how to enable once the UPS is connected" note. Runs only when
+# ups_enabled=true (set in site.yml gate) — which should be AFTER the UPS is physically wired, or the
+# driver has no device to bind and the services will log the UPS as unavailable.
+- name: Install NUT (server + client)
+  ansible.builtin.apt:
+    name: [nut-server, nut-client]
+    state: present
+    update_cache: true
+
+- name: Set NUT mode to standalone
+  ansible.builtin.copy:
+    dest: /etc/nut/nut.conf
+    mode: "0640"
+    group: nut
+    content: |
+      # Managed by Ansible (ups role). standalone = this box runs upsd + upsmon for its own local UPS.
+      MODE=standalone
+  notify:
+    - Restart nut-driver
+    - Restart nut-server
+    - Restart nut-monitor
+
+- name: Configure the UPS driver (ups.conf)
+  ansible.builtin.template:
+    src: ups.conf.j2
+    dest: /etc/nut/ups.conf
+    mode: "0640"
+    group: nut
+  notify:
+    - Restart nut-driver
+    - Restart nut-server
+    - Restart nut-monitor
+
+- name: Configure upsd to listen on loopback only
+  ansible.builtin.copy:
+    dest: /etc/nut/upsd.conf
+    mode: "0640"
+    group: nut
+    content: |
+      # Managed by Ansible (ups role). Loopback only — the local upsmon is the sole client; nothing on
+      # the LAN can reach upsd.
+      LISTEN 127.0.0.1 3493
+  notify: Restart nut-server
+
+- name: Configure the upsd monitor user (upsd.users)
+  ansible.builtin.template:
+    src: upsd.users.j2
+    dest: /etc/nut/upsd.users
+    mode: "0640"
+    group: nut
+  no_log: true
+  notify: Restart nut-server
+
+- name: Configure upsmon (clean shutdown on low battery)
+  ansible.builtin.template:
+    src: upsmon.conf.j2
+    dest: /etc/nut/upsmon.conf
+    mode: "0640"
+    group: nut
+  no_log: true
+  notify: Restart nut-monitor
+
+# nut-driver-enumerator turns each [ups] section in ups.conf into a nut-driver@<name> instance and
+# starts it — the version-robust way to bring the driver up (vs naming nut-driver@ups directly).
+- name: Enable + start NUT services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop:
+    - nut-driver-enumerator.service
+    - nut-server.service
+    - nut-monitor.service

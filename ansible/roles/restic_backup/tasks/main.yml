@@ -72,6 +72,10 @@
         [Service]
         Type=oneshot
         EnvironmentFile=/opt/homelab/.env
+        # A hard-kill mid-backup (this box crashes) leaves a stale lock that makes EVERY future run
+        # fail silently until cleared. restic unlock removes only stale (dead-process) locks; best-effort
+        # (-) so a transient R2 error here doesn't itself block the backup attempt.
+        ExecStartPre=-/usr/bin/restic unlock
         ExecStart=/usr/bin/restic backup /backups/ha --tag ha
         ExecStartPost=/usr/bin/restic forget --keep-daily 7 --keep-weekly 4 --prune
         # dead-man's switch: ping HA only if the backup+prune succeeded
@@ -91,6 +95,8 @@
         [Service]
         Type=oneshot
         EnvironmentFile=/opt/homelab/.env
+        # Clear a stale lock left by a hard-kill so the weekly integrity check isn't blocked (best-effort).
+        ExecStartPre=-/usr/bin/restic unlock
         ExecStart=/bin/sh -c 'restic check --read-data-subset=10%% || { curl -fsS -m10 -X POST http://$HA_IP:8123/api/webhook/homelab_alert -H "Content-Type: application/json" -d "{\"message\": \"restic check FAILED — backup repo may be corrupt\"}"; exit 1; }'
     - name: restic-check.timer
       content: |

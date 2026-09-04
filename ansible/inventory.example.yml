@@ -22,6 +22,13 @@ all:
     app_ip: ""                         # empty = DHCP (gondola is reached via its Cloudflare tunnel)
     app_gw: 192.168.x.1                # LAN gateway (only used when app_ip is set, e.g. den)
 
+    # UPS (OPT-IN — set ups_enabled: true) — NUT does a clean shutdown on low battery so a power cut
+    # is an orderly stop, not a hard-kill. Enable ONLY after the UPS is physically connected; confirm
+    # the driver/port with `nut-scanner -U` and override ups_driver/ups_port (see roles/ups/defaults).
+    # ups_enabled: false
+    # ups_driver: usbhid-ups
+    # ups_port: auto
+
     # FUTURE (cameras_enabled / ha_enabled) — all containers (podman + Quadlet), no VM. Not deployed yet.
     ha_ip: 192.168.x.x                 # HA container LAN IP (Home Assistant + Mosquitto)
     docker_ctname: cameras             # Incus container name for the camera stack

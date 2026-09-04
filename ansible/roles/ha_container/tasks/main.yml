@@ -15,6 +15,7 @@
     -c security.syscalls.intercept.mknod=true
     -c security.syscalls.intercept.setxattr=true
     -c boot.autostart=true
+    -c boot.host_shutdown_timeout=120
   when: ha_ctname not in ha_exists.stdout
   changed_when: true
 

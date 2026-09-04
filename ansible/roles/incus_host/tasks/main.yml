@@ -72,6 +72,24 @@
   when: incus_pool not in incus_pools.stdout
   changed_when: true
 
+# A FULL thin pool is the one event that can genuinely CORRUPT guest volumes (writes fail mid-flight).
+# lvm2-monitor/dmeventd (already running) will auto-GROW the pool from free VG space once it crosses the
+# threshold — event-driven, so it adds NO polling timer / CPU wakeups (kept off deliberately for SSD
+# longevity). This is a safety net on top of dmeventd's monitoring; without it a full pool goes read-only.
+# VG free is small, so this buys headroom, not infinite growth — pair with watching pool usage. lvmlocal.conf
+# is read after (and overrides) lvm.conf.
+- name: Enable LVM thin-pool autoextend (dmeventd-driven — no polling timer)
+  ansible.builtin.blockinfile:
+    path: /etc/lvm/lvmlocal.conf
+    create: true
+    mode: "0644"
+    marker: "# {mark} ANSIBLE homelab thin-pool autoextend"
+    block: |
+      activation {
+          thin_pool_autoextend_threshold = 80
+          thin_pool_autoextend_percent = 20
+      }
+
 # --- iGPU (QuickSync) — passed into camera containers via an Incus `gpu` device ---
 # Under Incus the render node is handed to an UNPRIVILEGED container with
 # `incus config device add <ct> gpu gpu` (cleaner than Proxmox's privileged-LXC +

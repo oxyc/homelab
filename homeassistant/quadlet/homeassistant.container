@@ -1,7 +1,7 @@
 # Home Assistant (Container). Host networking: HA's discovery + many integrations need LAN mDNS/broadcast
 # (the Incus container is LAN-bridged, so host net = the LAN). Config is the repo's homeassistant/ dir,
 # synced to /opt/homeassistant/config. The recorder DB lives on the NVMe (/nvr), NOT the SATA SSD —
-# see packages/recorder.yaml. Add-on equivalents (Zigbee2MQTT, ESPHome, Node-RED, Whisper/Piper) are
+# configured by the recorder: block in configuration.yaml. Add-on equivalents (Zigbee2MQTT, ESPHome, Node-RED, Whisper/Piper) are
 # added later as their own .container units alongside this one.
 [Unit]
 Description=Home Assistant (Container)
@@ -20,6 +20,11 @@ AutoUpdate=registry
 [Service]
 Restart=unless-stopped
 TimeoutStartSec=120
+# HA's recorder needs >10s to close its SQLite DB cleanly; the podman default stop is SIGTERM→10s→
+# SIGKILL. Give it 60s (podman `stop -t` is driven off TimeoutStopSec) so an ORDERLY stop/reboot lets
+# the recorder checkpoint the WAL. Not a corruption fix — WAL+synchronous=NORMAL already survive a hard
+# kill loss-only — purely so clean shutdowns finish tidily.
+TimeoutStopSec=60
 
 [Install]
 WantedBy=default.target

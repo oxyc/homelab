@@ -1,0 +1,9 @@
+# Managed by Ansible (ups role). Monitor the local UPS; on low battery (or "forced shutdown") upsd tells
+# upsmon to run SHUTDOWNCMD → an ORDERLY poweroff (systemd stops units, Incus drains guests) instead of a
+# hard-kill. `1` = this UPS powers 1 supply; MINSUPPLIES 1 = shut down when it can no longer power us.
+MONITOR ups@localhost 1 upsmon {{ ups_monitor_password }} primary
+MINSUPPLIES 1
+SHUTDOWNCMD "{{ ups_shutdown_cmd }}"
+POLLFREQ 5
+POLLFREQALERT 5
+HOSTSYNC 15
