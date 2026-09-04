@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# crash-signature — record, ONCE per boot, what the PREVIOUS boot/shutdown looked like, so this box's
+# recurring spontaneous reboots stop being a mystery. Oneshot at boot (NO timer -> no extra wakeups).
+# Appends one self-interpreting line to /var/log/crash-signatures/log and archives any kernel panic.
+#
+# Reading the log — the `verdict` field is the quick answer:
+#   clean-shutdown ......... prev boot ran systemd-shutdown / kernel `reboot:` -> an ORDERED reboot
+#                            (you, a deploy, or the graceful watchdog path). NOT a crash.
+#   kernel-panic ........... pstore captured an oops/panic -> SOFTWARE/driver; the archived panic text
+#                            (in /var/log/crash-signatures/pstore-*) names the subsystem.
+#   hardware-error ......... a FATAL machine-level error was logged for the previous death: an in-run
+#                            MCE (mce), rasdaemon-decoded record (ras), or — the reliable one on THIS
+#                            box — an ACPI BERT firmware error record surfaced at boot (bert). An audit
+#                            proved bert is written on EVERY abrupt death and NEVER on a clean shutdown,
+#                            so it's the crash fingerprint: an uncorrectable RAM error or CPU/VRM MCA
+#                            resets instantly, logs no OS MCE, and leaves a fatal firmware record.
+#                            -> memtest the (non-ECC) RAM first, then BIOS update / reseat / PSU. NOT
+#                            software, and NOT "just power" (a clean fatal record argues against a pure
+#                            external brownout).
+#   memory-uncorrectable ... EDAC uncorrectable count rose -> RAM / memory controller.
+#   disk-drop .............. last kernel msg was an nvme/ata/IO error -> the drive fell off the bus.
+#   thermal ................ a thermal-shutdown message -> cooling/dust.
+#   abrupt-no-trace ........ prev boot STOPPED mid-activity with NONE of the above, not even a BERT
+#                            record -> a true instant cut (external power / hard reset) with no firmware
+#                            log. Distinct from hardware-error, where the firmware DID catch a fault.
+set -uo pipefail   # NOT -e: every probe is best-effort; a missing tool must never drop the record.
+
+LOGDIR=/var/log/crash-signatures
+LOG="$LOGDIR/log"
+install -d -m 0755 "$LOGDIR"
+now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+# ---- pstore: a kernel panic writes dmesg-* here (or systemd-pstore archives it) across the reboot ----
+panic=none
+for d in /sys/fs/pstore /var/lib/systemd/pstore; do
+  if ls "$d"/dmesg-* >/dev/null 2>&1 || ls "$d"/*/dmesg* >/dev/null 2>&1; then
+    arch="$LOGDIR/pstore-$now"; install -d -m 0755 "$arch"
+    cp -a "$d"/* "$arch/" 2>/dev/null || true
+    hit="$(grep -rhiE 'Kernel panic|Oops|BUG:|Hardware Error|Machine Check' "$arch" 2>/dev/null | head -n1 | cut -c1-70)"
+    panic="PANIC:${hit:-captured}"
+    # only clear the live pstore (never systemd's archive); frees the limited backend for the next crash
+    [ "$d" = /sys/fs/pstore ] && rm -f /sys/fs/pstore/* 2>/dev/null || true
+  fi
+done
+
+# ---- previous boot: clean shutdown or abrupt stop? + how long it ran + its last kernel line ----
+prev_end=unknown prev_dur='?' last_kmsg=''
+if journalctl -b -1 -q -n1 >/dev/null 2>&1; then
+  # a clean shutdown ALWAYS runs systemd-shutdown / logs a kernel `reboot:` line; a crash logs neither.
+  if journalctl -b -1 -q 2>/dev/null | grep -qE 'systemd-shutdown\[|reboot: (Restarting|Power)'; then
+    prev_end=clean
+  else
+    prev_end=ABRUPT
+  fi
+  f="$(journalctl -b -1 -q -o short-unix 2>/dev/null | head -n1 | cut -d. -f1)"
+  l="$(journalctl -b -1 -q -o short-unix 2>/dev/null | tail -n1 | cut -d. -f1)"
+  [[ ${f:-} =~ ^[0-9]+$ && ${l:-} =~ ^[0-9]+$ ]] && prev_dur="$(( l - f ))s"
+  last_kmsg="$(journalctl -k -b -1 -q 2>/dev/null | tail -n1 | sed 's/.*kernel: //' | cut -c1-90)"
+fi
+
+# ---- hardware-error signals (three sources, because they surface in different places) ----
+#  mce  = an in-run Machine Check Exception during the DYING boot (-1) — a fault seen while it ran.
+#  bert = a FIRMWARE error record surfaced at THIS boot via ACPI BERT — the firmware's black-box record
+#         of what killed the previous boot. rasdaemon does NOT decode BERT, so this catches HW errors it
+#         misses (this box logs "BERT: [Hardware Error]: Skipped N error records" after its crashes).
+#  ras  = rasdaemon's decoded MCE/EDAC/PCIe records (authoritative when present).
+# Benign boot lines ("mce: CPU supports N banks") are excluded by matching only the real error forms.
+mce="$(journalctl -k -b -1 -q 2>/dev/null | grep -cE 'Machine Check Exception|mce: \[Hardware')"
+bert="$(journalctl -k -b 0 -q 2>/dev/null | grep -cE '\[Hardware Error\]')"
+ras=0
+if command -v ras-mc-ctl >/dev/null 2>&1; then
+  ras="$(ras-mc-ctl --errors 2>/dev/null | grep -cvE '^(No .*|[[:space:]]*)$')"
+fi
+
+# ---- EDAC memory error counters (non-ECC here, usually 0, but any rise is meaningful) ----
+edac_ce="$(cat /sys/devices/system/edac/mc/mc*/ce_count 2>/dev/null | awk '{s+=$1} END{print s+0}')"
+edac_ue="$(cat /sys/devices/system/edac/mc/mc*/ue_count 2>/dev/null | awk '{s+=$1} END{print s+0}')"
+
+# ---- current thermal baseline, hottest zone (a thermal trip would also surface in last_kmsg) ----
+# /sys/class/thermal is always present (ACPI/coretemp) — no lm-sensors dependency. millidegrees -> C.
+temp="$(cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null | sort -rn | head -n1 | awk 'NF{printf "%.0f", $1/1000}')"
+[ -z "$temp" ] && temp='?'
+
+# ---- verdict: the quick answer, most-specific first ----
+# hardware-error covers all three HW signals. On THIS box, `bert` is the real fingerprint: an audit
+# proved a FATAL firmware error record is written on EVERY abrupt death and NONE on clean shutdowns —
+# so bert>0 after an abrupt boot = a machine-level hardware fault, not a clean power cut.
+if   [ "$prev_end" = clean ];                     then verdict=clean-shutdown
+elif [[ $panic == PANIC:* ]];                     then verdict=kernel-panic
+elif [[ "$bert$mce$ras" == *[1-9]* ]];            then verdict=hardware-error
+elif [ "${edac_ue:-0}" -gt 0 ] 2>/dev/null;       then verdict=memory-uncorrectable
+elif [[ $last_kmsg == *nvme* || $last_kmsg == *ata* || $last_kmsg == *"I/O error"* ]]; then verdict=disk-drop
+elif [[ $last_kmsg == *hermal* ]];                then verdict=thermal
+else verdict=abrupt-no-trace
+fi
+
+line="$now verdict=$verdict prev_end=$prev_end ran=$prev_dur panic=$panic hwerr=bert:$bert,mce:$mce,ras:$ras edac_ce=${edac_ce:-?} edac_ue=${edac_ue:-?} temp=${temp:-?}C last_kmsg=\"$last_kmsg\""
+printf '%s\n' "$line" >> "$LOG"
+printf '%s\n' "$line"   # also to the journal, visible in `systemctl status crash-signature`

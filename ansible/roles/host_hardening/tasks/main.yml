@@ -97,14 +97,49 @@
     state: directory
     mode: "0755"
 
-- name: Cap journald disk usage (logs can't fill the disk)
+- name: Cap journald disk usage + keep logs across reboots (persistent = the previous boot survives)
   ansible.builtin.copy:
     dest: /etc/systemd/journald.conf.d/00-size.conf
     content: |
       [Journal]
       SystemMaxUse=500M
+      # Storage=persistent so `journalctl -b -1` survives a reboot — required by crash-signature to
+      # read what the box was doing when it died. Writes are bounded by the cap above.
+      Storage=persistent
     mode: "0644"
   notify: Restart journald
+
+# Crash-signature logger: this box spontaneously hard-reboots (suspected power/hardware). On every boot
+# this records a one-line, self-interpreting `verdict` for the PREVIOUS boot (clean vs abrupt, panic,
+# MCE, EDAC, thermal, disk-drop) to /var/log/crash-signatures/log — turning "it just rebooted" into a
+# named cause after a few crashes. Oneshot at boot, NO timer, so no extra wakeups.
+- name: Install the crash-signature script
+  ansible.builtin.copy:
+    src: crash-signature
+    dest: /usr/local/bin/crash-signature
+    mode: "0755"
+
+- name: Install the crash-signature boot service (oneshot)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/crash-signature.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Record a crash signature for the previous boot (spontaneous-reboot diagnosis)
+      # After journald (so -b -1 is readable) and systemd-pstore (so a panic is archived) have run.
+      After=systemd-journald.service systemd-pstore.service
+      Wants=systemd-journald.service
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/crash-signature
+      [Install]
+      WantedBy=multi-user.target
+
+- name: Enable crash-signature at boot
+  ansible.builtin.systemd:
+    name: crash-signature.service
+    enabled: true
+    daemon_reload: true
 
 - name: Enable periodic fstrim (SSD/NVMe longevity)
   ansible.builtin.systemd:
