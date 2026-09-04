@@ -16,10 +16,20 @@ Volume=/opt/homeassistant/config:/config
 Volume=/mnt/nvr/ha:/nvr
 Volume=/etc/localtime:/etc/localtime:ro
 AutoUpdate=registry
+# Liveness + auto-update rollback (same rationale as frigate.container). Notify=healthy → a bad :stable
+# that starts but wedges on a now-invalid config fails start → podman-auto-update rolls it back;
+# HealthOnFailure=kill cycles a runtime wedge. curl is in the HA image. StartPeriod covers HA's slow boot.
+HealthCmd=curl -fsS http://127.0.0.1:8123/manifest.json
+HealthInterval=30s
+HealthStartPeriod=120s
+HealthOnFailure=kill
+Notify=healthy
 
 [Service]
 Restart=unless-stopped
-TimeoutStartSec=120
+# Backoff so a boot-race crash-loop doesn't latch OFF; start timeout must exceed time-to-healthy.
+RestartSec=10
+TimeoutStartSec=180
 # HA's recorder needs >10s to close its SQLite DB cleanly; the podman default stop is SIGTERM→10s→
 # SIGKILL. Give it 60s (podman `stop -t` is driven off TimeoutStopSec) so an ORDERLY stop/reboot lets
 # the recorder checkpoint the WAL. Not a corruption fix — WAL+synchronous=NORMAL already survive a hard

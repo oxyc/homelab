@@ -12,6 +12,9 @@ Exec=tunnel --no-autoupdate run
 
 [Service]
 Restart=unless-stopped
+# Backoff so a boot-race (network not up yet) crash-loop doesn't latch the tunnel OFF. cloudflared is
+# outbound-only and reconnects on its own after a network blip, so no HealthCmd is needed.
+RestartSec=10
 
 [Install]
 WantedBy=default.target

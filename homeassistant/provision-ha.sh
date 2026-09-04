@@ -27,10 +27,26 @@ install -m 0644 "$SRC/mosquitto.conf" "$APP/mosquitto/mosquitto.conf"
 
 log "place Quadlet units (mosquitto + homeassistant)"
 install -d /etc/containers/systemd
+# Restart Mosquitto only when its unit changed (or it isn't running) — an HA-only deploy shouldn't drop
+# every MQTT client. Capture the checksum before overwriting. (A mosquitto.conf-only change still needs a
+# manual restart.)
+mq_before="$(md5sum /etc/containers/systemd/mosquitto.container 2>/dev/null | cut -d' ' -f1 || true)"
 install -m 0644 "$SRC/quadlet/mosquitto.container"     /etc/containers/systemd/
 install -m 0644 "$SRC/quadlet/homeassistant.container" /etc/containers/systemd/
+mq_after="$(md5sum /etc/containers/systemd/mosquitto.container | cut -d' ' -f1)"
 
 log "generate + (re)start units"
 systemctl daemon-reload
-systemctl restart mosquitto.service homeassistant.service
+# FAIL LOUDLY if a unit doesn't come up — the old blind restart reported success on a bad config. With
+# Notify=healthy on HA, the restart blocks until the container is actually healthy (a real deploy gate).
+restart_checked() {
+  systemctl restart "$1" && return 0
+  log "ERROR: $1 failed to start after deploy — recent log:"
+  journalctl -u "$1" -n 20 --no-pager || true
+  exit 1
+}
+if [ "$mq_before" != "$mq_after" ] || ! systemctl is-active --quiet mosquitto.service; then
+  restart_checked mosquitto.service
+fi
+restart_checked homeassistant.service
 log "done. HA at http://<ha_ip>:8123 (first boot: create the owner account). Verify: podman ps"

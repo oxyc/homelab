@@ -19,6 +19,11 @@ PublishPort=80:80
 
 [Service]
 Restart=unless-stopped
+# Backoff so a boot-race crash-loop doesn't latch OFF; short drain on stop. No HealthCmd: this is a
+# custom caddy build with no guaranteed in-image HTTP probe tool, and a false-unhealthy check that
+# restart-loops is worse than none. Caddy fronts other services; a brief 502 on restart self-heals.
+RestartSec=10
+TimeoutStopSec=15
 
 [Install]
 WantedBy=default.target

@@ -29,6 +29,14 @@
     - docker_ctname not in cam_exists.stdout
   changed_when: true
 
+# Guard: if the NVMe isn't mounted (e.g. it didn't re-enumerate after a crash), binding source=/mnt/nvr
+# would silently bind an EMPTY dir on the OS SSD and Frigate would record there, filling root. Refuse to
+# deploy the camera stack until the mount is real. `mountpoint -q` exits non-zero -> the play fails.
+- name: Assert the NVR mount is real before binding it into the camera container
+  ansible.builtin.command: "mountpoint -q {{ nvr_mount }}"
+  changed_when: false
+  when: not molecule_test
+
 - name: Mount the NVR disk into the container for recordings
   ansible.builtin.command: "incus config device add {{ docker_ctname }} nvr disk source={{ nvr_mount }} path=/mnt/nvr"
   when:

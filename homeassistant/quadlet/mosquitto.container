@@ -12,9 +12,19 @@ ContainerName=mosquitto
 Network=host
 Volume=/opt/homeassistant/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
 Volume=/opt/homeassistant/mosquitto/data:/mosquitto/data
+# Liveness: -E connects+subscribes+exits, so this passes only if the broker is actually accepting
+# connections (catches a wedged-but-running broker). mosquitto_sub ships in the eclipse-mosquitto image.
+HealthCmd=mosquitto_sub -t healthcheck -E
+HealthInterval=30s
+HealthStartPeriod=10s
+HealthOnFailure=kill
 
 [Service]
 Restart=unless-stopped
+# Backoff (avoid start-limit latch) + a stop budget so persistence (mosquitto.db) is written on a clean
+# stop before SIGKILL (podman default 10s).
+RestartSec=10
+TimeoutStopSec=15
 
 [Install]
 WantedBy=default.target

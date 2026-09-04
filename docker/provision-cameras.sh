@@ -81,7 +81,17 @@ case " $PROFILES " in *" tunnel "*|*,tunnel,*|*tunnel*)
 
 log "generate + (re)start units"
 systemctl daemon-reload
+# Restart each unit and FAIL LOUDLY if it doesn't come up — the old `|| true` hid a unit that died on a
+# bad config/image, reporting success. With Notify=healthy on frigate, `systemctl restart` blocks until
+# the container is actually healthy, so this is a real post-deploy gate.
+restart_checked() {
+  systemctl restart "$1" && return 0
+  log "ERROR: $1 failed to start after deploy — recent log:"
+  journalctl -u "$1" -n 20 --no-pager || true
+  exit 1
+}
 for u in frigate caddy scrypted cloudflared; do
-  if [ -f "/etc/containers/systemd/$u.container" ]; then systemctl restart "$u.service" || true; fi
+  [ -f "/etc/containers/systemd/$u.container" ] || continue
+  restart_checked "$u.service"
 done
 log "done. verify:  podman ps  ;  systemctl --failed"

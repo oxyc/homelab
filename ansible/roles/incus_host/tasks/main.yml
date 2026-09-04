@@ -24,13 +24,49 @@
     dev: "{{ nvr_disk_device }}"
     # force: false  # NEVER set force on a disk with data
 
-- name: Mount NVR disk
+# Mount by UUID + nofail. This box hard-crashes; without nofail a required local-fs mount that
+# fails to re-enumerate after a crash fails local-fs.target -> emergency.target -> a headless box
+# stuck at a root console until someone attaches a keyboard. nofail makes the mount a WANT (boot
+# continues if the NVMe is missing/renamed); UUID survives an nvme node renumber; the 30s device
+# timeout stops a 90s hang. (Pairs with ordering incus.service after this mount — see below — so a
+# camera/HA guest never binds an EMPTY /mnt/nvr and records onto the OS SSD.)
+- name: Look up the NVR disk UUID
+  ansible.builtin.command: "blkid -s UUID -o value {{ nvr_disk_device }}"
+  register: nvr_blkid
+  changed_when: false
+
+- name: Mount NVR disk (by UUID, nofail — a missing/renamed NVMe must not brick the boot)
   ansible.posix.mount:
     path: "{{ nvr_mount }}"
-    src: "{{ nvr_disk_device }}"
+    src: "UUID={{ nvr_blkid.stdout }}"
     fstype: ext4
-    opts: defaults,noatime
+    opts: defaults,noatime,nofail,x-systemd.device-timeout=30s
     state: mounted
+
+# Ordering only (NOT RequiresMountsFor): make the NVMe mount be ATTEMPTED before Incus brings guests up,
+# so on a slow-enumerating disk a camera/HA guest is less likely to start before /mnt/nvr is ready. It
+# deliberately does NOT gate Incus on the mount — gondola/den don't use the NVMe and must still boot if
+# it's absent (that's the point of nofail). The deploy-time guard in camera_container/ha_container is
+# what refuses to bind an EMPTY /mnt/nvr and record onto the OS SSD.
+- name: Ensure the incus.service drop-in dir
+  ansible.builtin.file:
+    path: /etc/systemd/system/incus.service.d
+    state: directory
+    mode: "0755"
+
+- name: Order incus.service after the NVR mount
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/incus.service.d/after-nvr-mount.conf
+    mode: "0644"
+    content: |
+      [Unit]
+      After=mnt-nvr.mount
+  register: incus_nvr_dropin
+
+- name: Reload systemd when the incus drop-in changed
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: incus_nvr_dropin.changed
 
 # --- Incus storage + network (first-run init only) ---
 # The storage pool reuses the existing LVM thin pool ({{ incus_vg }}/{{ incus_thinpool }}) so

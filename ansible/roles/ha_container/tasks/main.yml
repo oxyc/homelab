@@ -21,6 +21,11 @@
 
 # HA's recorder DB is a continuous SSD writer; put it on the high-endurance NVMe (not the SATA SSD),
 # the same way Frigate recordings are. The provisioner points recorder db_url here.
+# Guard: don't bind an EMPTY /mnt/nvr (unmounted NVMe) — HA's recorder DB would land on the OS SSD.
+- name: Assert the NVR mount is real before binding it into the HA container
+  ansible.builtin.command: "mountpoint -q {{ nvr_mount }}"
+  changed_when: false
+
 - name: Mount the NVMe into the HA container (recorder DB target)
   ansible.builtin.command: "incus config device add {{ ha_ctname }} nvr disk source={{ nvr_mount }} path=/mnt/nvr"
   when: ha_ctname not in ha_exists.stdout

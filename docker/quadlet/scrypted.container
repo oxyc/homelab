@@ -16,6 +16,13 @@ AutoUpdate=registry
 
 [Service]
 Restart=unless-stopped
+# Backoff (avoid start-limit latch) + graceful stop. NOTE: scrypted carries AutoUpdate=registry on
+# :latest but has NO HealthCmd here, so podman-auto-update can only roll back a hard START failure, not
+# a wedged-but-running update. Before relying on it, add a HealthCmd (e.g. curl -k https://127.0.0.1:10443)
+# once the in-image probe tool + port are confirmed, plus Notify=healthy. Low urgency: OFF by default
+# (homekit profile) and its state is declared disposable (re-pair on disaster).
+RestartSec=10
+TimeoutStopSec=15
 
 [Install]
 WantedBy=default.target

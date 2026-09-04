@@ -27,10 +27,26 @@ PublishPort=8554:8554
 PublishPort=8555:8555/tcp
 PublishPort=8555:8555/udp
 AutoUpdate=registry
+# Liveness + auto-update rollback. Notify=healthy makes systemd treat the service "started" only once
+# the API answers, so a bad :stable that starts-but-wedges never satisfies start -> podman-auto-update
+# rolls it back. HealthOnFailure=kill cycles a container that goes unhealthy at RUNTIME (the wedged-but-
+# "active" gap). curl is in the frigate image (its own upstream healthcheck uses it). StartPeriod covers
+# the slow first boot (model load) so boot doesn't count as unhealthy.
+HealthCmd=curl -fsS http://127.0.0.1:5000/api/version
+HealthInterval=30s
+HealthStartPeriod=120s
+HealthOnFailure=kill
+Notify=healthy
 
 [Service]
 Restart=unless-stopped
-TimeoutStartSec=120
+# RestartSec spaces restarts past systemd's default 5-in-10s StartLimit so a boot-race crash-loop
+# doesn't latch the unit OFF (this box hard-crashes often). TimeoutStartSec must exceed time-to-healthy
+# now that Notify=healthy gates readiness. TimeoutStopSec lets go2rtc + the ffmpeg muxers close streams
+# (podman default is 10s -> SIGKILL).
+RestartSec=10
+TimeoutStartSec=180
+TimeoutStopSec=30
 
 [Install]
 WantedBy=default.target
