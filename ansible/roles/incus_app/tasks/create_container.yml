@@ -12,7 +12,7 @@
   register: app_exists
   changed_when: false
 
-- name: Create app container ({{ app_name }}) — podman-capable, autostart, confined
+- name: Create a podman-capable, autostart, confined container — {{ app_name }}
   ansible.builtin.command: >-
     incus launch images:debian/13 {{ app_name }}
     -c security.nesting=true

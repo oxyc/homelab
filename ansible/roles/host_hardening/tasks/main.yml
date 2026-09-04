@@ -339,7 +339,7 @@
 # segmented at the network layer (Omada VLANs). `tailscale0` is always allowed so a bad rule can't
 # lock you out. A static nftables ruleset (kernel-loaded once at boot, no resident daemon) owns it;
 # under Proxmox this replaced pve-firewall's polling Perl daemon — that's now retired with Proxmox.
-- name: nftables package present
+- name: Nftables package present
   ansible.builtin.apt:
     name: nftables
     state: present

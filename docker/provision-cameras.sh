@@ -82,6 +82,6 @@ case " $PROFILES " in *" tunnel "*|*,tunnel,*|*tunnel*)
 log "generate + (re)start units"
 systemctl daemon-reload
 for u in frigate caddy scrypted cloudflared; do
-  [ -f "/etc/containers/systemd/$u.container" ] && systemctl restart "$u.service" || true
+  if [ -f "/etc/containers/systemd/$u.container" ]; then systemctl restart "$u.service" || true; fi
 done
 log "done. verify:  podman ps  ;  systemctl --failed"
