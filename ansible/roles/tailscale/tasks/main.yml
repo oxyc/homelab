@@ -30,3 +30,52 @@
   when: ts_status.rc != 0
   changed_when: true
   no_log: true                # contains the auth key
+
+# ── serve ───────────────────────────────────────────────────────────────────────────────────────
+# These routes existed only on the box, hand-added and recorded nowhere — the same way den's export
+# timer and its systemd units did, both found by accident months later. They are now load-bearing
+# (the only remote path to den-reel and den-remux), so they belong in the repo.
+#
+# There is no `serve set-raw`, so this diffs and reapplies rather than converging in place: read the
+# live config, compare, and only reset+re-add when it differs. The reset drops the tailnet routes for
+# well under a second and is skipped entirely when nothing changed.
+- name: Read the current serve config
+  ansible.builtin.command: tailscale serve status --json
+  register: ts_serve_raw
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: ts_serve_routes | length > 0
+
+- name: Compare the live serve routes with the desired set
+  vars:
+    _web: "{{ ((ts_serve_raw.stdout | default('{}') | from_json).Web | default({}, true)).values() | list | first | default({}, true) }}"
+    _handlers: "{{ _web.Handlers | default({}, true) | dict2items }}"
+  ansible.builtin.set_fact:
+    ts_serve_have: "{{ _handlers | map(attribute='key') | zip(_handlers | map(attribute='value') | map(attribute='Proxy')) | map('join', ' ') | sort | list }}"
+    ts_serve_want: "{{ ts_serve_routes | map(attribute='path') | zip(ts_serve_routes | map(attribute='target')) | map('join', ' ') | sort | list }}"
+  when: ts_serve_routes | length > 0
+
+- name: Reapply the serve routes
+  when:
+    - ts_serve_routes | length > 0
+    - ts_serve_have != ts_serve_want
+  block:
+    - name: Clear the current serve config
+      ansible.builtin.command: tailscale serve reset
+      changed_when: true
+
+    - name: Serve each route over HTTPS on the tailnet
+      ansible.builtin.command:
+        argv:
+          - tailscale
+          - serve
+          - --bg
+          - --yes
+          - "--https={{ ts_serve_port }}"
+          - "--set-path={{ item.path }}"
+          - "{{ item.target }}"
+      loop: "{{ ts_serve_routes }}"
+      loop_control:
+        label: "{{ item.path }} -> {{ item.target }}"
+      changed_when: true

@@ -3,3 +3,21 @@ ts_hostname: pve
 ts_ssh: true                 # enable Tailscale SSH (phone -> server, no keys)
 ts_advertise_routes: ""      # e.g. "192.168.10.0/24" to also reach HA/Frigate via the tailnet
 # ts_authkey: set in group_vars/all.yml (secret, from Bitwarden)
+
+# `tailscale serve` — the tailnet-only front door, on one HTTPS port with a path per service.
+# Real public-CA TLS, reachable by tailnet devices only, no ports opened and no Cloudflare in the
+# path. This is the ONLY remote path for video: den-reel and den-remux cannot go through the tunnel
+# (Cloudflare's terms restrict serving video, and a strike would land on the account that also
+# serves gondola), so the tailnet is not a convenience here — it is the route.
+#
+# Empty by default because the targets are real LAN addresses and this repo is public. Set
+# ts_serve_routes in inventory.yml / group_vars (gitignored), shaped like:
+#   ts_serve_routes:
+#     - {path: /,      target: "http://192.168.x.x:8094"}   # den-edge
+#     - {path: /scout, target: "http://192.168.x.x:8080"}
+#     - {path: /remux, target: "http://192.168.x.x:8095/remux"}   # keeps its own prefix
+#
+# A target WITHOUT a path strips the prefix before proxying (/scout/manifest.json -> :8080/manifest.json).
+# A target WITH one keeps it, which is what den-remux expects. Getting this backwards 404s.
+ts_serve_port: 8443
+ts_serve_routes: []
