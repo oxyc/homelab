@@ -12,6 +12,7 @@
 #   Account | Cloudflare Tunnel        : Edit
 #   Account | Access: Apps and Policies: Edit
 #   Account | Access: Service Tokens   : Edit     <- separate from Apps and Policies; easy to miss
+#   Account | Access: Organizations, Identity Providers, and Groups : Edit   <- the login method
 #   Zone    | DNS                      : Edit
 #   Zone    | Zone                     : Read
 #   Zone    | Zone WAF                 : Edit
@@ -134,6 +135,23 @@ for st in c.get("service_tokens", []):
                 print(f"  -> client_secret for {st['name']} is shown ONCE. Store it now:")
                 print(f"     client_id: {r['client_id']}")
                 print(f"     client_secret: {r['client_secret']}")
+
+# ── login method ────────────────────────────────────────────────────────────────────────────────
+# Access ships with NO identity provider, and OTP is no longer added automatically. Without one the
+# login page offers only "Login with Cloudflare", which authenticates a Cloudflare DASHBOARD account
+# — so every allowed address that is not itself a Cloudflare login (i.e. an ordinary mailbox) gets
+# "That account does not have access", and the apps below are unreachable by the exact people their
+# policies allow. One-time PIN mails a code to the address the policy already names, which is the
+# identity this design wants; it is also the only login method that needs no third-party setup.
+idps = ok(call("GET", f"/accounts/{acct}/access/identity_providers"), "list identity providers") or []
+if any(i.get("type") == "onetimepin" for i in idps):
+    print("  ok             login method one-time PIN")
+else:
+    note(verb, "login method one-time PIN")
+    if APPLY:
+        ok(call("POST", f"/accounts/{acct}/access/identity_providers",
+                {"name": "One-time PIN", "type": "onetimepin", "config": {}}),
+           "one-time PIN login method")
 
 # ── Access applications ─────────────────────────────────────────────────────────────────────────
 apps  = ok(call("GET", f"/accounts/{acct}/access/apps"), "list access apps") or []

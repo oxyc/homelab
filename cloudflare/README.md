@@ -61,6 +61,12 @@ rotates without an app release. No server-side component holds a copy — which 
 den-subtitles alias public names to LAN addresses rather than talking to each other through
 Cloudflare. Two services on the same box should not need the WAN to reach each other.
 
+**An allow policy is not a login.** Access ships with no identity provider, and one-time PIN is not
+added automatically. Without one, the login page offers only "Login with Cloudflare" — a Cloudflare
+*dashboard* account — so an allowed address that is an ordinary mailbox is told "That account does
+not have access", and the app is unreachable by the exact person it allows. `apply.sh` now converges
+the one-time PIN login method for this reason.
+
 **Video never goes through the tunnel.** den-reel and den-remux are absent on purpose: Cloudflare's
 terms restrict serving video through the CDN/Tunnel outside Stream/R2, and it would spend home upload
 bandwidth. Both stay LAN + tailnet; a remote TV falls back to YouTube trailers. Do not "fix" this.
@@ -79,6 +85,7 @@ bandwidth. Both stay LAN + tailnet; a remote TV falls back to YouTube trailers. 
 Account | Cloudflare Tunnel         : Edit
 Account | Access: Apps and Policies : Edit
 Account | Access: Service Tokens    : Edit     <- separate permission; easy to miss
+Account | Access: Organizations, Identity Providers, and Groups : Edit
 Zone    | DNS                       : Edit
 Zone    | Zone                      : Read
 Zone    | Zone WAF                  : Edit
