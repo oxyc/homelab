@@ -53,6 +53,9 @@ all:
       - name: den
         ip: 192.168.x.193              # clients target a fixed LAN IP (tailscale serve proxies to it)
         gw: 192.168.x.1
+        disk_gb: 20                    # stated so a rebuild does not inherit whatever the pool
+                                       # default happens to be. Create-time only: the reconcile pass
+                                       # never resizes an existing container.
         snapshot_schedule: "@weekly"   # as the live container is configured
         snapshot_expiry: "4w"
         gpu: true                      # shares the iGPU with the (future) camera container.
