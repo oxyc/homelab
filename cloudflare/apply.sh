@@ -34,7 +34,7 @@ fi
 export CLOUDFLARE_API_TOKEN MODE CFG
 
 python3 - <<'PY'
-import json, os, subprocess, sys, urllib.request, urllib.error
+import json, os, sys, urllib.request, urllib.error
 
 TOKEN = os.environ["CLOUDFLARE_API_TOKEN"]
 APPLY = os.environ["MODE"] == "--apply"
@@ -54,28 +54,68 @@ def call(method, path, body=None):
         with urllib.request.urlopen(req) as r:
             return json.load(r)
     except urllib.error.HTTPError as e:
-        return json.load(e)
+        # A gateway or WAF error body is HTML, not JSON; json.load would raise here and lose the
+        # status code, which is the only useful thing about it.
+        try:
+            return json.load(e)
+        except ValueError:
+            return {"success": False, "errors": [{"message": f"HTTP {e.code} (non-JSON body)"}]}
+    except urllib.error.URLError as e:
+        return {"success": False, "errors": [{"message": f"network: {e.reason}"}]}
+
+errors = 0
 
 def ok(d, what):
+    global errors
     if d.get("success"):
         return d.get("result")
+    errors += 1
     msgs = [e.get("message") or e.get("error") for e in d.get("errors", [])]
     # auth.forbidden here almost always means one missing token scope, not a wrong account.
     print(f"  ! {what}: {msgs}", file=sys.stderr)
     return None
+
+def must(d, what):
+    """For LIST calls only. Every decision below is 'does X already exist?', so a failed read is
+    indistinguishable from 'nothing exists' and converts into a confident, wrong 'ok'. Concretely:
+    if listing Access apps fails on a missing token scope, bydom is empty and every protected
+    hostname reports `ok … bypassed (no access app)` — a clean bill of health derived from having
+    read nothing. Reads are cheap; guessing is not."""
+    r = ok(d, what)
+    if r is None:
+        print(f"  ! cannot continue without {what} — refusing to report on state it could not read",
+              file=sys.stderr)
+        sys.exit(1)
+    return r
+
+def paged(path, what):
+    """The API caps per_page (100 for DNS) and pages silently. Unpaginated, a zone past one page
+    makes an existing record look absent and this script tries to create a duplicate."""
+    out, page = [], 1
+    while True:
+        sep = "&" if "?" in path else "?"
+        d = must(call("GET", f"{path}{sep}page={page}&per_page=100"), what)
+        out.extend(d)
+        if len(d) < 100:
+            return out
+        page += 1
 
 c    = cfg_load(os.environ["CFG"])
 acct = c["account_id"]; zone = c["zone"]; zid = c["zone_id"]
 verb = "creating" if APPLY else "would create"
 changes = 0
 
+unresolved = 0   # MISMATCH / UNEXPECTED / WARN: --apply cannot fix these, a human must
+
 def note(action, what):
-    global changes
+    global changes, unresolved
     changes += 1
+    if action in ("MISMATCH", "UNEXPECTED", "WARN"):
+        unresolved += 1
     print(f"  {action:<14} {what}")
 
 # ── tunnel ──────────────────────────────────────────────────────────────────────────────────────
-tuns = ok(call("GET", f"/accounts/{acct}/cfd_tunnel?is_deleted=false"), "list tunnels") or []
+tuns = must(call("GET", f"/accounts/{acct}/cfd_tunnel?is_deleted=false"), "list tunnels")
 tun  = next((t for t in tuns if t["name"] == c["tunnel"]["name"]), None)
 if tun:
     print(f"  ok             tunnel {tun['name']} ({tun.get('config_src')})")
@@ -99,10 +139,16 @@ else:
                   "manager; it is the tunnel's only credential.")
 
 # ── DNS ─────────────────────────────────────────────────────────────────────────────────────────
-if tun:
+# DELIBERATELY RUN LAST. Creating the record first means that between the DNS write and the Access
+# write the hostname resolves and routes to the origin with nothing in front of it — and an --apply
+# that dies in between (a missing scope, Ctrl-C, a network blip) leaves it that way with no error
+# loud enough to notice. Access first, DNS last, fails closed: an interrupted run leaves a protected
+# app nobody can reach yet, which is the harmless direction.
+def ensure_dns():
+    if not tun:
+        return
     target  = f"{tun['id']}.cfargotunnel.com"
-    records = ok(call("GET", f"/zones/{zid}/dns_records?per_page=200"), "list dns") or []
-    have    = {r["name"]: r for r in records}
+    have    = {r["name"]: r for r in paged(f"/zones/{zid}/dns_records", "list dns")}
     for h in c["hostnames"]:
         fqdn = f"{h['name']}.{zone}"
         r = have.get(fqdn)
@@ -119,12 +165,30 @@ if tun:
 
 # ── service tokens ──────────────────────────────────────────────────────────────────────────────
 svc_ids = {}
-existing = ok(call("GET", f"/accounts/{acct}/access/service_tokens"), "list service tokens") or []
+existing = must(call("GET", f"/accounts/{acct}/access/service_tokens"), "list service tokens")
 for st in c.get("service_tokens", []):
     found = next((s for s in existing if s["name"] == st["name"]), None)
     if found:
         svc_ids[st["name"]] = found["id"]
-        print(f"  ok             service token {st['name']}")
+        # The expiry is the failure nobody sees coming: the TVs simply start getting 403 and this
+        # script, matching on name alone, would still print "ok" on the day after. Tokens are not
+        # renewable — an expired one is replaced, and the new secret has to reach the TVs.
+        exp = (found.get("expires_at") or "")[:10]
+        left = None
+        if exp:
+            from datetime import date
+            try:
+                y, m, d = (int(x) for x in exp.split("-"))
+                left = (date(y, m, d) - date.today()).days
+            except ValueError:
+                pass
+        if left is not None and left < 0:
+            note("MISMATCH", f"service token {st['name']} EXPIRED {exp} — TVs are locked out")
+        elif left is not None and left < 60:
+            note("WARN", f"service token {st['name']} expires {exp} ({left}d) — rotate before then")
+        else:
+            print(f"  ok             service token {st['name']}"
+                  + (f" (expires {exp})" if exp else ""))
     else:
         note(verb, f"service token {st['name']}")
         if APPLY:
@@ -143,7 +207,7 @@ for st in c.get("service_tokens", []):
 # "That account does not have access", and the apps below are unreachable by the exact people their
 # policies allow. One-time PIN mails a code to the address the policy already names, which is the
 # identity this design wants; it is also the only login method that needs no third-party setup.
-idps = ok(call("GET", f"/accounts/{acct}/access/identity_providers"), "list identity providers") or []
+idps = must(call("GET", f"/accounts/{acct}/access/identity_providers"), "list identity providers")
 if any(i.get("type") == "onetimepin" for i in idps):
     print("  ok             login method one-time PIN")
 else:
@@ -154,8 +218,60 @@ else:
            "one-time PIN login method")
 
 # ── Access applications ─────────────────────────────────────────────────────────────────────────
-apps  = ok(call("GET", f"/accounts/{acct}/access/apps"), "list access apps") or []
+apps  = must(call("GET", f"/accounts/{acct}/access/apps"), "list access apps")
 bydom = {a.get("domain"): a for a in apps}
+
+def check_policies(app, fqdn, want, h):
+    """Existence used to be the whole check: if an app was on the domain, this printed ok and moved
+    on. That made the script structurally unable to answer the question README.md says it exists to
+    answer — "why does one of these hostnames skip the login?" — for any app that already exists,
+    which after the first run is all of them. An Everyone/Bypass policy added in the dashboard while
+    debugging a TV, or a deleted Owners policy, reported "in sync" forever.
+
+    It also made the service-token attachment dead code: that POST only ever ran inside the
+    app-CREATION branch, so a run where it failed could never be repaired by a later run."""
+    pols = ok(call("GET", f"/accounts/{acct}/access/apps/{app['id']}/policies"),
+              f"policies for {fqdn}")
+    if pols is None:
+        return
+    want_emails = set(c["access_emails"])
+    have_emails, have_tokens, loose = set(), set(), []
+    for p in pols:
+        dec = p.get("decision")
+        inc = p.get("include") or []
+        if dec in ("bypass", "non_identity") or dec == "allow":
+            for rule in inc:
+                if "email" in rule:
+                    have_emails.add(rule["email"].get("email"))
+                elif "service_token" in rule:
+                    have_tokens.add(rule["service_token"].get("token_id"))
+                elif "everyone" in rule or "ip" in rule or "certificate" in rule:
+                    # The dangerous shape: a rule that admits someone who is on nobody's list.
+                    loose.append(f"{p.get('name') or dec}:{list(rule)[0]}")
+        if dec == "bypass":
+            loose.append(f"{p.get('name') or 'policy'}:bypass-decision")
+    for extra in sorted(have_emails - want_emails):
+        note("UNEXPECTED", f"access app {fqdn} admits {extra}, which is not in access_emails")
+    for missing in sorted(want_emails - have_emails):
+        note("MISMATCH", f"access app {fqdn} does NOT admit {missing}")
+    for l in loose:
+        note("UNEXPECTED", f"access app {fqdn} has a policy admitting anyone ({l})")
+    # The TV token must be attached exactly where attach_to says, and nowhere else.
+    for st in c.get("service_tokens", []):
+        tid = svc_ids.get(st["name"])
+        if not tid:
+            continue
+        should = h["name"] in st.get("attach_to", [])
+        if should and tid not in have_tokens:
+            note("MISMATCH", f"access app {fqdn} is missing the {st['name']} service-token policy")
+            if APPLY:
+                ok(call("POST", f"/accounts/{acct}/access/apps/{app['id']}/policies",
+                        {"name": f"{st['name']} (service token)", "decision": "non_identity",
+                         "precedence": 2, "include": [{"service_token": {"token_id": tid}}]}),
+                   f"tv policy on {fqdn}")
+        elif not should and tid in have_tokens:
+            note("UNEXPECTED", f"access app {fqdn} carries the {st['name']} token but should not")
+
 for h in c["hostnames"]:
     fqdn = f"{h['name']}.{zone}"
     want = h["access"]
@@ -168,6 +284,7 @@ for h in c["hostnames"]:
         continue
     if app:
         print(f"  ok             access app {fqdn}")
+        check_policies(app, fqdn, want, h)
         continue
     note(verb, f"access app {fqdn} ({want})")
     if APPLY:
@@ -192,14 +309,30 @@ for h in c["hostnames"]:
 rl = call("GET", f"/zones/{zid}/rulesets/phases/http_ratelimit/entrypoint")
 cur = (rl.get("result") or {}).get("rules") or [] if rl.get("success") else []
 for want in c.get("rate_limits", []):
-    if any(want["description"] in (r.get("description") or "") for r in cur):
-        print(f"  ok             rate limit {want['host']}{want['path_prefix']}")
+    expr = (f'(http.host eq "{want["host"]}.{zone}" and '
+            f'starts_with(http.request.uri.path, "{want["path_prefix"]}"))')
+    found = next((r for r in cur if want["description"] in (r.get("description") or "")), None)
+    if found:
+        # Matching the description alone said "ok" for a rule that had been disabled, re-scoped to
+        # another host, or loosened to a useless threshold. This is the only thing capping online
+        # guessing against /pair, so the thresholds are the point, not the label.
+        rlc = found.get("ratelimit") or {}
+        bad = []
+        if not found.get("enabled", True):                          bad.append("disabled")
+        if (found.get("expression") or "") != expr:                 bad.append("expression")
+        if rlc.get("requests_per_period") != want["requests_per_period"]: bad.append("requests")
+        if rlc.get("period") != want["period"]:                     bad.append("period")
+        if rlc.get("mitigation_timeout") != want["mitigation_timeout"]:   bad.append("timeout")
+        if found.get("action") != "block":                          bad.append("action")
+        if bad:
+            note("MISMATCH", f"rate limit {want['host']}{want['path_prefix']}: {', '.join(bad)}")
+        else:
+            print(f"  ok             rate limit {want['host']}{want['path_prefix']}")
         continue
     note(verb, f"rate limit {want['host']}{want['path_prefix']}")
     if APPLY:
         rule = {"action": "block", "description": want["description"],
-                "expression": f'(http.host eq "{want["host"]}.{zone}" and '
-                              f'starts_with(http.request.uri.path, "{want["path_prefix"]}"))',
+                "expression": expr,
                 "ratelimit": {"characteristics": ["ip.src", "cf.colo.id"],
                               "period": want["period"],
                               "requests_per_period": want["requests_per_period"],
@@ -211,10 +344,51 @@ for want in c.get("rate_limits", []):
                     {"name": "default", "kind": "zone", "phase": "http_ratelimit", "rules": [rule]}),
                "rate limit ruleset")
 
+# ── DNS, last (see ensure_dns) ──────────────────────────────────────────────────────────────────
+ensure_dns()
+
+# ── the bypassed hostnames actually bypass into an API, not a UI ─────────────────────────────────
+# The Access boundary for these rests on something this repo does not own: the origin matching its
+# own Host allowlist. d and d-api point at the SAME backend; only den-edge's API_HOSTS keeps the
+# bypassed name from serving the web app and its unauthenticated /api/*. Rename a bypassed host here
+# — which ingress.example.yml says will happen as Den Web lands — and the origin falls through to
+# web mode, publishing the API to the internet, with every object in this file still "in sync".
+# So: assert the property, cheaply, instead of trusting a string in another repo.
+if c.get("verify_bypass", True):
+    import urllib.request as _u
+    for h in c["hostnames"]:
+        if h.get("access") != "bypass" or h.get("path_allowlist"):
+            continue
+        fqdn = f"{h['name']}.{zone}"
+        try:
+            rq = _u.Request(f"https://{fqdn}/", method="GET")
+            with _u.urlopen(rq, timeout=15) as r:
+                code, ctype = r.status, r.headers.get("content-type", "")
+        except urllib.error.HTTPError as e:
+            code, ctype = e.code, e.headers.get("content-type", "")
+        except Exception as e:                                    # noqa: BLE001 — report, don't crash
+            note("WARN", f"could not verify {fqdn} bypasses into an API: {e}")
+            continue
+        if code == 404:
+            print(f"  ok             {fqdn} origin is in API mode (404 at /)")
+        else:
+            note("UNEXPECTED",
+                 f"{fqdn} bypasses Access and its origin answered {code} {ctype.split(';')[0]} at / "
+                 f"— expected 404. If this is the web UI, it is now public.")
+
 print()
+if errors:
+    print(f"{errors} API call(s) FAILED — state above is incomplete.", file=sys.stderr)
+    print("A missing token scope is the usual cause; see the scope list at the top of this script.",
+          file=sys.stderr)
+    sys.exit(1)
 if changes == 0:
     print("in sync — Cloudflare matches access.json")
-elif not APPLY:
+    sys.exit(0)
+if not APPLY:
     print(f"{changes} difference(s). Re-run with --apply to create what is missing.")
     print("Nothing is ever deleted by this script; MISMATCH and UNEXPECTED are for you to resolve.")
+    sys.exit(2)
+# --apply created what it could; anything flagged for a human is still outstanding.
+sys.exit(2 if unresolved else 0)
 PY
