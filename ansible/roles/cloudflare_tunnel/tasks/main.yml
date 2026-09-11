@@ -20,13 +20,26 @@
 
 # Pinned by version, not "latest": a tunnel that silently updates itself is a tunnel that can change
 # behaviour on a reboot you did not intend. Same reasoning as the digest pins on the app containers.
-- name: Install cloudflared
+#
+# Installed to a VERSIONED path and symlinked. get_url's default force:false means "skip if the
+# destination exists" — so pointing it straight at /usr/local/bin/cloudflared made the pin
+# decorative: bumping tunnel_version changed the URL, downloaded nothing, and left the box on
+# whatever was installed first, while the comment above claimed otherwise. A versioned dest means a
+# new version is a new file, so the bump actually happens (and the old binary stays for a rollback).
+- name: Install cloudflared {{ tunnel_version }}
   ansible.builtin.get_url:
     url: "https://github.com/cloudflare/cloudflared/releases/download/{{ tunnel_version }}/cloudflared-linux-{{ tunnel_arch }}"
-    dest: /usr/local/bin/cloudflared
+    dest: "/usr/local/lib/cloudflared-{{ tunnel_version }}"
     mode: "0755"
     owner: root
     group: root
+
+- name: Point /usr/local/bin/cloudflared at {{ tunnel_version }}
+  ansible.builtin.file:
+    src: "/usr/local/lib/cloudflared-{{ tunnel_version }}"
+    dest: /usr/local/bin/cloudflared
+    state: link
+    force: true
   notify: Restart cloudflared
 
 - name: Install the tunnel credentials
@@ -43,6 +56,12 @@
 # repo rather than from the Cloudflare dashboard. Every hostname in it ends in a catch-all 404, so a
 # request reaches a backend only because a rule says so — check cloudflare/ingress.example.yml before
 # editing, the ordering is load-bearing.
+#
+# Validated by `copy`'s own validate hook, i.e. BEFORE the file reaches its live path. It used to be
+# a separate command task afterwards, which did not do what its name said: a typo failed the play
+# with the bad file already installed. The running cloudflared keeps its in-memory config, so
+# nothing looks broken — until the next reboot, when the tunnel does not come up and the cause is
+# weeks of commits away. host_hardening already does this properly for sudoers and nftables.
 - name: Install the ingress config
   ansible.builtin.copy:
     src: "{{ tunnel_ingress_src }}"
@@ -50,14 +69,8 @@
     owner: root
     group: "{{ tunnel_user }}"
     mode: "0640"
+    validate: "/usr/local/bin/cloudflared tunnel --config %s ingress validate"
   notify: Restart cloudflared
-
-- name: Validate the ingress config before letting systemd near it
-  ansible.builtin.command: "/usr/local/bin/cloudflared tunnel --config {{ tunnel_config_dir }}/config.yml ingress validate"
-  register: tunnel_validate
-  changed_when: false
-  # A bad ingress file otherwise surfaces as a service that starts and then serves nothing, which
-  # looks like a network problem rather than a typo.
 
 - name: Install the cloudflared service
   ansible.builtin.copy:
