@@ -1,0 +1,77 @@
+{
+  "_": "Copy to cloudflare/access.json (gitignored) and fill in. Desired state for the PRIVATE tunnel. Apply with cloudflare/apply.sh. JSON, not YAML, because no python on the admin box or the host has PyYAML and this script stays stdlib-only. The long-form reasoning lives in cloudflare/README.md; each entry's `why` is the short version.",
+
+  "account_id": "<32-hex account id>",
+  "zone": "<example.com>",
+  "zone_id": "<32-hex zone id>",
+
+  "tunnel": {
+    "name": "homelab-private",
+    "config_src": "local",
+    "why": "Locally managed so ingress rules live in cloudflare/ingress.yml in this repo rather than in the dashboard. Costs a credentials JSON instead of a TUNNEL_TOKEN."
+  },
+
+  "hostnames": [
+    {
+      "name": "d",
+      "service": "http://<den-ip>:8094",
+      "access": "owners",
+      "why": "Den Web. Browsers can render an Access login, so it gets one."
+    },
+    {
+      "name": "d-scout",
+      "service": "http://<den-ip>:8080",
+      "access": "owners+tvs",
+      "why": "scout JSON API. Bypassed it becomes a free public aggregator: a stranger mints their own install, and the scraping leaves from the home IP, so the indexers rate-limit and blocklist YOU."
+    },
+    {
+      "name": "d-subs",
+      "service": "http://<den-ip>:8093",
+      "access": "owners+tvs",
+      "why": "den-subtitles JSON API. Bypassed it becomes a public subtitle proxy running audio sync on the box's CPU."
+    },
+    {
+      "name": "d-atlas",
+      "service": "http://<den-ip>:8081",
+      "access": "owners+tvs",
+      "why": "atlas JSON API."
+    },
+    {
+      "name": "d-api",
+      "service": "http://<den-ip>:8094",
+      "access": "bypass",
+      "why": "den-edge device API. Built as an untrusted relay and authorises each request itself. A TV cannot render a login page, and a service token cannot bootstrap: a factory-reset TV has no token and must reach den-edge to be given one."
+    },
+    {
+      "name": "d-play",
+      "service": "http://<den-ip>:8080",
+      "access": "bypass",
+      "path_allowlist": "^/p/[A-Za-z0-9_-]+$",
+      "why": "scout play tickets ONLY. Separate host because the TV plays /p/<ticket> directly and scout 302s to the debrid; players repeat custom headers across redirects, so an Access token would reach the debrid's CDN on every play. A ticket is its own authority: one release, 24h. The allowlist fails closed."
+    }
+  ],
+  "_not_exposed": "den-reel and den-remux are absent on purpose. They serve video, and Cloudflare's terms restrict serving video through the CDN/Tunnel outside Stream/R2. Both stay LAN + tailnet; a remote TV falls back to YouTube trailers. Do not add them here.",
+
+  "access_emails": ["<owner@example.com>", "<other@example.com>"],
+  "session_duration": "720h",
+
+  "service_tokens": [
+    {
+      "name": "den-tv",
+      "attach_to": ["d-scout", "d-subs", "d-atlas"],
+      "why": "Non-identity credential the TVs send as CF-Access-Client-*. Delivered through den-edge's library log (set:keys) so it rotates without an app release, and it lives ONLY on the TVs."
+    }
+  ],
+
+  "rate_limits": [
+    {
+      "description": "den-edge /pair: cap online guessing against CPace",
+      "host": "d-api",
+      "path_prefix": "/pair",
+      "requests_per_period": 5,
+      "period": 10,
+      "mitigation_timeout": 10,
+      "why": "/pair is internet-facing and outside Access, so CPace's resistance to ONLINE guessing rests on den-edge's own attempt cap. WAF rules still apply to Access-bypassed paths. FREE PLAN: period and mitigation_timeout must both be 10 and there is one rule per zone — the API rejects anything else with 'not entitled'."
+    }
+  ]
+}

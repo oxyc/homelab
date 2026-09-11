@@ -1,0 +1,91 @@
+# Install cloudflared on the HOST and run the private tunnel as a systemd service.
+#
+# Outbound-only: no port is opened on the router, and the tunnel dials Cloudflare rather than being
+# dialled. That is the whole reason this shape was chosen over a port-forward.
+- name: Create the cloudflared system user
+  ansible.builtin.user:
+    name: "{{ tunnel_user }}"
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+    home: "{{ tunnel_config_dir }}"
+
+- name: Create the cloudflared config directory
+  ansible.builtin.file:
+    path: "{{ tunnel_config_dir }}"
+    state: directory
+    owner: root
+    group: "{{ tunnel_user }}"
+    mode: "0750"
+
+# Pinned by version, not "latest": a tunnel that silently updates itself is a tunnel that can change
+# behaviour on a reboot you did not intend. Same reasoning as the digest pins on the app containers.
+- name: Install cloudflared
+  ansible.builtin.get_url:
+    url: "https://github.com/cloudflare/cloudflared/releases/download/{{ tunnel_version }}/cloudflared-linux-{{ tunnel_arch }}"
+    dest: /usr/local/bin/cloudflared
+    mode: "0755"
+    owner: root
+    group: root
+  notify: Restart cloudflared
+
+- name: Install the tunnel credentials
+  ansible.builtin.copy:
+    src: "{{ tunnel_credentials_src }}"
+    dest: "{{ tunnel_config_dir }}/homelab-private.json"
+    owner: root
+    group: "{{ tunnel_user }}"
+    mode: "0640"
+  no_log: true          # the file IS the credential
+  notify: Restart cloudflared
+
+# The ingress file is the routing table, and it is the thing this role exists to deploy from the
+# repo rather than from the Cloudflare dashboard. Every hostname in it ends in a catch-all 404, so a
+# request reaches a backend only because a rule says so — check cloudflare/ingress.example.yml before
+# editing, the ordering is load-bearing.
+- name: Install the ingress config
+  ansible.builtin.copy:
+    src: "{{ tunnel_ingress_src }}"
+    dest: "{{ tunnel_config_dir }}/config.yml"
+    owner: root
+    group: "{{ tunnel_user }}"
+    mode: "0640"
+  notify: Restart cloudflared
+
+- name: Validate the ingress config before letting systemd near it
+  ansible.builtin.command: "/usr/local/bin/cloudflared tunnel --config {{ tunnel_config_dir }}/config.yml ingress validate"
+  register: tunnel_validate
+  changed_when: false
+  # A bad ingress file otherwise surfaces as a service that starts and then serves nothing, which
+  # looks like a network problem rather than a typo.
+
+- name: Install the cloudflared service
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/cloudflared-private.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Cloudflare Tunnel (private — den, HA; behind Access)
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=notify
+      User={{ tunnel_user }}
+      ExecStart=/usr/local/bin/cloudflared --no-autoupdate --config {{ tunnel_config_dir }}/config.yml tunnel run
+      Restart=on-failure
+      # Backoff so a boot race (network not up yet) cannot latch the tunnel OFF in a crash loop.
+      RestartSec=10
+      # --no-autoupdate: the version is pinned above and updated deliberately, like every other
+      # image on this box.
+
+      [Install]
+      WantedBy=multi-user.target
+  notify: Restart cloudflared
+
+- name: Enable the tunnel
+  ansible.builtin.systemd:
+    name: cloudflared-private.service
+    enabled: true
+    state: started
+    daemon_reload: true

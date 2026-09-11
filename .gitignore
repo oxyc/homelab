@@ -27,3 +27,8 @@ docs/
 .DS_Store
 *.swp
 docker/atlas-data/
+
+# Cloudflare private tunnel — real values and credentials (see cloudflare/*.example.*)
+cloudflare/access.json
+cloudflare/ingress.yml
+cloudflare/homelab-private.json
