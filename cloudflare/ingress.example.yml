@@ -1,0 +1,66 @@
+# Copy to cloudflare/ingress.yml (gitignored) and fill in. This is cloudflared's own config file for
+# the PRIVATE tunnel, deployed to the pve host by the `cloudflare_tunnel` role.
+#
+# It is a file rather than dashboard config because the tunnel is LOCALLY managed (config_src: local).
+# The routes churn — den's hostnames will move as the Den Web plan lands — and churn is exactly what
+# makes dashboard drift invisible. The trade is that the tunnel authenticates with a credentials JSON
+# instead of a TUNNEL_TOKEN; that file is a secret and never lives in this repo.
+#
+# Keep in step with cloudflare/access.yml: a hostname added here without an Access application there
+# is PUBLIC. That is the one failure this pair of files exists to make obvious.
+
+tunnel: <32-hex tunnel id>
+credentials-file: /etc/cloudflared/homelab-private.json
+
+# Two connections rather than the default four, matching gondola's tunnel. This is a home box and a
+# handful of devices; four HA connections is four idle TLS sessions and four sets of keepalives for
+# no benefit at this scale.
+ha-connections: 2
+
+# Every hostname ends in a catch-all 404, and the FINAL rule is a 404 too. Default-deny per hostname:
+# a request reaches a backend only because a rule above says so, never because it fell through.
+# Adding a service means adding a rule, which is the point — you cannot expose something by accident.
+ingress:
+  # ── Den Web ───────────────────────────────────────────────────────────────────────────────────
+  - hostname: d.<domain>
+    service: http://<den-ip>:8094
+  - hostname: d.<domain>
+    service: http_status:404
+
+  # ── Addon JSON APIs (behind Access) ───────────────────────────────────────────────────────────
+  - hostname: d-scout.<domain>
+    service: http://<den-ip>:8080
+  - hostname: d-scout.<domain>
+    service: http_status:404
+
+  - hostname: d-subs.<domain>
+    service: http://<den-ip>:8093
+  - hostname: d-subs.<domain>
+    service: http_status:404
+
+  - hostname: d-atlas.<domain>
+    service: http://<den-ip>:8081
+  - hostname: d-atlas.<domain>
+    service: http_status:404
+
+  # ── den-edge device API (Access BYPASSED — den-edge authorises each request itself) ───────────
+  - hostname: d-api.<domain>
+    service: http://<den-ip>:8094
+  - hostname: d-api.<domain>
+    service: http_status:404
+
+  # ── Play tickets (Access BYPASSED) ────────────────────────────────────────────────────────────
+  # Only `/p/<ticket>` reaches scout. Anything else on this hostname 404s at the edge, so the
+  # bypass cannot be widened by a later scout route appearing. Tickets are unpadded base64url and
+  # scout serves them at exactly two path segments, so this matches every ticket and nothing else.
+  #
+  # This path rule FAILS CLOSED: get it wrong and a ticket is denied. Contrast a path-based Access
+  # *bypass*, which fails open — that is why the Access boundary is a hostname and never a prefix.
+  - hostname: d-play.<domain>
+    path: '^/p/[A-Za-z0-9_-]+$'
+    service: http://<den-ip>:8080
+  - hostname: d-play.<domain>
+    service: http_status:404
+
+  # Required final rule. Anything not named above never reaches the box.
+  - service: http_status:404

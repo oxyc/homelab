@@ -1,0 +1,28 @@
+---
+# The PRIVATE Cloudflare tunnel — the one tunnel for everything behind a login (den now, Home
+# Assistant later). Opt-in: only provisioned when true.
+#
+# Deliberately NOT the same tunnel as gondola's. Public and private config never share one, so a
+# private route cannot be left public by accident; each has its own credential, so a leak exposes one
+# side; and gondola's blue/green deploy recreates its cloudflared, which would otherwise cut den off.
+tunnel_enabled: false
+
+# Runs on the HOST, not in a container. The box has no podman and no docker — it is a bare Incus host
+# — so this is a plain binary plus a systemd unit. homelab's docker/quadlet/cloudflared.container was
+# written for the (still unbuilt) camera container and cannot reach den at its LAN address from there;
+# it is superseded by this role for the private tunnel.
+tunnel_version: "2026.3.0"          # pin, matching gondola's cloudflared image tag
+tunnel_arch: amd64
+tunnel_user: cloudflared
+tunnel_config_dir: /etc/cloudflared
+
+# Source files, rendered from the *.example templates and gitignored (see cloudflare/).
+# Anchored to playbook_dir on purpose: a bare relative `src` in `copy` resolves against the ROLE's
+# files/ directory, not the playbook, so these would have silently pointed at a path that does not
+# exist.
+#   ingress.yml  -> cloudflared's own config: which hostname reaches which LAN service
+#   credentials  -> the tunnel's only credential. A secret: it belongs in your password manager too,
+#                   because losing it means re-creating the tunnel and every DNS record that points
+#                   at it.
+tunnel_ingress_src: "{{ playbook_dir }}/../cloudflare/ingress.yml"
+tunnel_credentials_src: "{{ playbook_dir }}/../cloudflare/homelab-private.json"

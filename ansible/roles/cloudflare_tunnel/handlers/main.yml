@@ -1,0 +1,7 @@
+- name: Restart cloudflared
+  ansible.builtin.systemd:
+    name: cloudflared-private.service
+    state: restarted
+    daemon_reload: true
+  # A restart drops the tunnel for a second or two. That is fine here: the app behind it is
+  # scale-to-zero anyway, and cloudflared re-establishes its connections on its own.
