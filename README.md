@@ -4,7 +4,12 @@ Single-host home server provisioned with Ansible. The host is **plain Debian 13 
 
 **Running today** — two podman-capable Incus containers, each self-provisioned by its own repo:
 - **gondola** — the grocery-tracker app (reached via its Cloudflare tunnel)
-- **den** — Stremio addons (LAN, `192.168.x.193`)
+- **den** — Stremio addons, plus **den-edge** (device log collector) and **den-remux** (video
+  remuxing) (LAN, `192.168.x.193`, shares the iGPU)
+
+Homelab owns only the container *shell* for these — sizing, snapshots, devices, host-level export.
+Both are described in `incus_apps` (see `ansible/inventory.example.yml`); what runs *inside* belongs
+to each app's own repo.
 
 **Planned** (opt-in roles, not yet deployed on this box):
 - **Frigate** — NVR + object detection (records native H.265, no transcode)
@@ -13,6 +18,33 @@ Single-host home server provisioned with Ansible. The host is **plain Debian 13 
 - **Caddy** — local HTTPS reverse proxy
 
 The camera stack runs as an **unprivileged Incus container with an Incus `gpu` device** (QuickSync passthrough), and Home Assistant as its own podman container — everything's a container, no VM. All secrets are externalized (env vars / `!secret` / Bitwarden), so this repo is public-safe.
+
+### The iGPU is shared, and nothing here enforces priority
+
+The UHD 630 is attached to **den** today and will also be attached to the **cameras** container;
+Incus is happy to hand one Intel GPU to several containers. Expected load barely overlaps — Frigate
+decodes for detection (it records H.265 as-is), Scrypted transcodes only while someone is watching
+over HomeKit, and den-remux only copies streams unless hardware transcoding is turned on.
+
+Be clear about what that "cameras win if it gets tight" rule is, though: **a statement of intent, not
+a control.** Incus has no GPU priority or share mechanism — `/dev/dri` access is first-come. The only
+real lever is capping the *consumers*, which lives in their own repos (den-remux caps concurrent
+hardware transcodes via `MAX_TRANSCODES`, default 1; plain remuxing copies video and never touches
+the GPU). Homelab can attach the device and write the policy down; it cannot arbitrate it.
+
+The device's `gid` is **not** hardcoded — it is the render group *inside each container*, which is
+not the host's (den's is 991, the host's 993), so `incus_app` looks it up at provision time. Pinning
+a literal would break silently on a new base image: the device appears, owned by the wrong group, and
+a non-root process just cannot open it.
+
+### Not in Ansible: `tailscale serve`
+
+The host also publishes den over the tailnet with `tailscale serve` — currently
+`:8443/` → `.193:8094`, `/atlas` → `:8081`, `/scout` → `:8080`. This is **deliberately not**
+provisioned by the `tailscale` role: the routes belong to the Den Web plan (P4, which adds `:443`
+for the web app) and will keep moving, so pinning them in Ansible would just create churn. The role
+will not wipe them, but a rebuilt host would not have them either — re-add by hand, or check with
+`tailscale serve status`.
 
 ## Layout
 
@@ -156,8 +188,10 @@ setup + HomeKit pairing. The go2rtc restreams Scrypted consumes already exist in
   **Incus containers** on an **lvm-thin** pool (snapshots via `incus snapshot`); the default profile
   bridges each guest onto `vmbr0` so it gets a LAN IP directly.
 - ext4 (not ZFS); 16GB RAM is enough for this stack.
-- The future camera container shares the iGPU (QuickSync) across Frigate + Scrypted via an Incus
-  `gpu` device (unprivileged) — cleaner than Proxmox's privileged-LXC `/dev/dri` share.
+- The iGPU (QuickSync) is shared via an Incus `gpu` device (unprivileged) — cleaner than Proxmox's
+  privileged-LXC `/dev/dri` share. Not camera-only: **den holds one today** and the future camera
+  container will share it across Frigate + Scrypted. See "The iGPU is shared" above for why nothing
+  here can enforce who wins, and why the device `gid` is looked up rather than pinned.
 - CX820 main is H.265 (recorded raw); only the HomeKit path transcodes, on the iGPU.
 - Doorbell is the **Reolink PoE Video Doorbell** (2K, 4:3) — keep its main H.264 if possible (HomeKit-friendly, no transcode).
 - Scrypted camera setup and HomeKit pairing are manual (not automated).

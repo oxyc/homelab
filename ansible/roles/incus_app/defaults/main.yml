@@ -1,8 +1,8 @@
 ---
 # Generic "isolated, podman-capable app container" — the Incus layer only. The APP that runs inside
 # (podman, .env, deploy, app-data backup) is owned by that app's own repo, so this role carries ZERO
-# app specifics. Today the box hosts gondola.uy (these defaults) and den; each app's repo turns a
-# bare container into a running host via its own portable provisioner (see docs/gondola.md).
+# app specifics. Today the box hosts gondola.uy and den; each app's repo turns a bare container into
+# a running host via its own portable provisioner (see docs/gondola.md).
 #
 # Opt-in: only provisioned when true.
 app_enabled: false
@@ -11,21 +11,46 @@ app_enabled: false
 # so incus_app doesn't rely on another role's defaults leaking play-wide.
 molecule_test: false
 
-app_name: gondola
-# app_ip / app_gw come from inventory. Leave app_ip empty for a tunnel-only app (DHCP); set it for
-# an app whose clients target a fixed LAN IP (e.g. den -> 192.168.x.193).
-
-# Sizing.
-app_cores: 2
-app_memory: 3072      # MiB
-app_disk_gb: 40       # gondola's data+exports need >10G; thin-provisioned so unused space costs nothing
-
-# In-pool CoW snapshots (cheap on lvm-thin) for quick rollback. Crash-consistent only — a
-# restored snapshot of a running SQLite app may need WAL recovery; pair with the export backup.
-app_snapshot_schedule: "@daily"
-app_snapshot_expiry: "7d"
+# ── The app list ────────────────────────────────────────────────────────────────────────────────
+# One entry per container. Set this in inventory (see ansible/inventory.example.yml) — it stays empty
+# here because a real entry needs a LAN IP, and this repo is public.
+#
+# Per-app keys (all optional except `name`):
+#   name                 container name
+#   ip / gw              static LAN IP, written INSIDE the container as a systemd-networkd unit.
+#                        Omit for DHCP (gondola is reached through its Cloudflare tunnel).
+#   disk_gb              root disk size. Omitted -> leave whatever the pool default gave it.
+#   snapshot_schedule    e.g. "@daily", "@weekly"
+#   snapshot_expiry      e.g. "7d", "4w"
+#   limits: {cpu, memory} ENFORCED when present, UNMANAGED when absent. See the note below.
+#   gpu: true            attach an Incus `gpu` device (shared iGPU). The device's gid is resolved
+#                        from the render group INSIDE that container, never hardcoded here.
+#   backup               host-level `incus export` timer. Defaults to true.
+#   backup_schedule / backup_keep   per-app overrides of the two defaults below.
+#
+# WHY `limits` IS OPT-IN, AND OMISSION MEANS "LEAVE IT ALONE":
+# This role used to be create-only — every task was gated on "container does not exist" — so it could
+# never correct drift, and the repo drifted from the box unnoticed. gondola is the proof: these
+# defaults have said 2 CPUs / 3072 MiB since day one and the live container has NO limits at all.
+# Now that the role reconciles, a naive read of that would suddenly cap a running production app on
+# the next play. So reconciliation manages only keys you state explicitly: listing `limits` enforces
+# them, omitting it means the box is right. Run with --check --diff first either way; the reconcile
+# task prints every difference it would apply before applying any of them.
+incus_apps: []
 
 # Host-level backup (incus export -> nvr, the vzdump replacement). App-data offsite backup is the
-# app's own concern. Runs from a systemd timer (see backup.yml); keeps the last app_backup_keep.
-app_backup_schedule: "*-*-* 04:30:00"
-app_backup_keep: 7
+# app's own concern. Runs from a systemd timer (see backup.yml); keeps the last N exports.
+incus_app_backup_schedule: "*-*-* 04:30:00"
+incus_app_backup_keep: 7
+
+# ── Legacy single-app vars (pre-list) ───────────────────────────────────────────────────────────
+# Still honoured: when `incus_apps` is empty, main.yml synthesizes a one-entry list from these, so an
+# existing inventory.yml keeps working untouched. Note the synthesized entry deliberately carries NO
+# `limits` — app_cores/app_memory stay create-time-only, exactly as they have always behaved, so
+# turning reconciliation on cannot retroactively cap gondola. Migrate to `incus_apps` to describe den.
+app_name: gondola
+app_cores: 2
+app_memory: 3072      # MiB — create-time only (see above)
+app_disk_gb: 40       # gondola's data+exports need >10G; thin-provisioned so unused space costs nothing
+app_snapshot_schedule: "@daily"
+app_snapshot_expiry: "7d"

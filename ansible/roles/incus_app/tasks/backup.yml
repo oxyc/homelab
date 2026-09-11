@@ -3,53 +3,58 @@
 # vzdump replacement — `incus export` bundles the instance config + a storage snapshot into one
 # tarball that `incus import` restores. The app's own OFFSITE backup (restic of its data) is
 # provisioned by the app's repo, not here.
-- name: Install the incus-export backup script for {{ app_name }}
+#
+# Per-app: skip an app entirely with `backup: false` (adding a container to `incus_apps` should not
+# silently start a nightly multi-GB export on its behalf).
+- name: Install the incus-export backup script for {{ app.name }}
   ansible.builtin.copy:
-    dest: "/usr/local/bin/incus-export-{{ app_name }}"
+    dest: "/usr/local/bin/incus-export-{{ app.name }}"
     mode: "0755"
     content: |
       #!/bin/sh
       set -e
       d={{ nvr_mount }}/backups
       mkdir -p "$d"
-      # --instance-only: exclude the container's own snapshots from the export. The daily `incus snapshot`
-      # (7-day retention) already provides local point-in-time recovery, so bundling the whole snapshot
-      # history into every daily tarball just bloats it (observed: gondola export climbing 12->28GB as
+      # --instance-only: exclude the container's own snapshots from the export. The `incus snapshot`
+      # ring already provides local point-in-time recovery, so bundling the whole snapshot history
+      # into every daily tarball just bloats it (observed: gondola export climbing 12->28GB as
       # snapshots accumulated). This keeps each export ~current-instance-sized.
       #
       # Consistency: this exports the LIVE rootfs (optimized-storage dumps the thin volume; on lvm-thin it
       # is near-instant, so the write window is tiny). A torn tarball is still CRASH-CONSISTENT on restore —
       # the guests' stores are SQLite-WAL / atomic-rename, so an import boots and recovers exactly like a
-      # power-loss, losing at most the last txn (acceptable). The 7-day atomic `incus snapshot` ring is the
+      # power-loss, losing at most the last txn (acceptable). The atomic `incus snapshot` ring is the
       # clean point-in-time recovery path. We deliberately do NOT snapshot+copy+export a throwaway instance
       # for a "perfect" tarball: that would add nightly full-volume write churn on a longevity-sensitive SSD
       # for a loss-only, WAL-recoverable edge case.
-      incus export {{ app_name }} "$d/{{ app_name }}-$(date +%Y%m%d-%H%M%S).tar.zst" --optimized-storage --compression zstd --instance-only
-      # keep the last {{ app_backup_keep }} exports
-      ls -1t "$d"/{{ app_name }}-*.tar.zst | tail -n +{{ app_backup_keep + 1 }} | xargs -r rm -f
+      incus export {{ app.name }} "$d/{{ app.name }}-$(date +%Y%m%d-%H%M%S).tar.zst" --optimized-storage --compression zstd --instance-only
+      # keep the last {{ app.backup_keep | default(incus_app_backup_keep) }} exports
+      ls -1t "$d"/{{ app.name }}-*.tar.zst | tail -n +{{ (app.backup_keep | default(incus_app_backup_keep)) + 1 }} | xargs -r rm -f
 
-- name: Install the backup service + timer for {{ app_name }}
+- name: Install the backup service + timer for {{ app.name }}
   ansible.builtin.copy:
     dest: "/etc/systemd/system/{{ item.name }}"
     content: "{{ item.content }}"
     mode: "0644"
   loop:
-    - name: "incus-export-{{ app_name }}.service"
+    - name: "incus-export-{{ app.name }}.service"
       content: |
         [Service]
         Type=oneshot
-        ExecStart=/usr/local/bin/incus-export-{{ app_name }}
-    - name: "incus-export-{{ app_name }}.timer"
+        ExecStart=/usr/local/bin/incus-export-{{ app.name }}
+    - name: "incus-export-{{ app.name }}.timer"
       content: |
         [Timer]
-        OnCalendar={{ app_backup_schedule }}
+        OnCalendar={{ app.backup_schedule | default(incus_app_backup_schedule) }}
         Persistent=true
         [Install]
         WantedBy=timers.target
+  loop_control:
+    label: "{{ item.name }}"
 
-- name: Enable the export timer for {{ app_name }}
+- name: Enable the export timer for {{ app.name }}
   ansible.builtin.systemd:
-    name: "incus-export-{{ app_name }}.timer"
+    name: "incus-export-{{ app.name }}.timer"
     enabled: true
     state: started
     daemon_reload: true
