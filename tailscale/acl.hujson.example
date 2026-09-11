@@ -1,23 +1,79 @@
 // Tailscale tailnet policy for the homelab (single user, tailnet-only; no public ports).
 // Paste into the admin console -> Access Controls. Uses the modern `grants` syntax.
+//
+// This policy used to be one line: {"src":["*"],"dst":["*"],"ip":["*"]} — every device, every peer,
+// every port. That is worth being honest about rather than quietly tightening: the tailnet is not a
+// soft inner boundary here, it is a HARD one. Nothing behind `tailscale serve` authenticates
+// anything — den-edge answers /api/* with no credential on the tailnet — so tailnet membership *is*
+// the authorisation. A policy that grants everything to everything makes a single lost, unlocked
+// phone equivalent to full access, and the blast radius grows every time a service is added.
 {
-  // Single-user tailnet: your own devices reach each other + the LAN subnet route the host
-  // advertises (ts_advertise_routes). Approve that route once in the console's Machines view
-  // (this policy intentionally has no autoApprovers — approval is manual/one-time).
+  // Tagging the server is the one change that needs a command on the box, not just a paste:
+  //   tailscale up --advertise-tags=tag:server   (keep every other flag you already pass)
+  //
+  // Two reasons, and the second is a scheduled outage rather than a nicety:
+  //   1. A tagged node stops being "autogroup:self", so rules can distinguish the SERVER from your
+  //      personal devices — which this policy cannot do today.
+  //   2. A tagged node's key DOES NOT EXPIRE. A user-owned node's key does, and when it lapses the
+  //      tailnet address stops answering: no ssh, no Ansible (inventory targets the tailnet name),
+  //      and no `tailscale serve` — which is the only remote path to den-reel and den-remux.
+  //      Check yours: `tailscale status --json | grep KeyExpiry`.
+  //
+  // Until you tag it, `tag:server` simply matches nothing and `autogroup:self` covers the host, so
+  // this policy is correct either way. Do the retag when you can reach the box on its LAN, not
+  // only over the tailnet you are reconfiguring.
+  "tagOwners": {
+    "tag:server": ["autogroup:owner"],
+  },
+
   "grants": [
-    {"src": ["*"], "dst": ["*"], "ip": ["*"]},
+    // 1. Your devices -> the homelab host, on the ports that actually exist.
+    //      22    Tailscale SSH / sshd
+    //      8443  `tailscale serve` — the tailnet front door to den (ts_serve_routes)
+    //    Adding a service means adding its port here. That is the point.
+    //
+    //    NOTE: this also bounds device-to-device traffic (laptop <-> phone) to those ports, because
+    //    without the server tag they are all "autogroup:self". If you use Taildrop between your own
+    //    devices, widen this rule or tag the server so the two cases can be separated.
+    {
+      "src": ["autogroup:member"],
+      "dst": ["tag:server", "autogroup:self"],
+      "ip": ["22", "8443"],
+    },
+
+    // 2. The advertised LAN subnet route (ts_advertise_routes). Approve the route once in the
+    //    console's Machines view — this policy intentionally has no autoApprovers.
+    //
+    //    DELIBERATELY NOT ip:["*"]. The apps' containers sit on this subnet, and their raw ports
+    //    answer WITHOUT authentication — they are meant to be reached through `tailscale serve`,
+    //    which is the boundary. A wildcard here routes around that boundary for every tailnet
+    //    device. List the ports of services that are genuinely meant to be reachable directly.
+    {
+      "src": ["autogroup:member"],
+      "dst": ["192.168.x.0/24"],   // <- your real LAN CIDR, same value as ts_advertise_routes
+      "ip": ["8123", "8971"],      // Home Assistant, Frigate
+    },
   ],
 
-  // Tailscale SSH: your devices -> your own machines. "accept" = no re-auth prompt (free).
-  // NOTE: a custom "checkPeriod" needs Tailscale Premium/Enterprise, so the only free choices are
-  // "check" (identity re-auth, fixed 12h — can't be lengthened) or "accept" (no re-auth). For a
-  // single-user, tailnet-only box, "accept" is the pragmatic pick; if a device is lost, revoke it
-  // in the console. To restore the 12h identity re-auth instead, change "accept" -> "check".
+  // Tailscale SSH: your devices -> your own machines.
+  //
+  // "accept" = no re-auth prompt. A custom "checkPeriod" needs Premium/Enterprise, so the only free
+  // choices are "check" (identity re-auth, fixed 12h, cannot be lengthened) and "accept".
+  //
+  // This stays "accept", and that is a decision rather than an oversight: Ansible connects to this
+  // host over the tailnet as root, so "check" would make every unattended run wait on a browser
+  // login that nobody is there to complete. The trade is real — with "accept", an unlocked device
+  // is a root shell — so the compensating control is revocation: if a device is lost, disable it in
+  // the console immediately, which cuts it off regardless of this setting.
+  //
+  // If you would rather have "check": move `ansible_user` to the admin account with `become: true`
+  // and a normal SSH key (root now has a real authorized_keys), so automation no longer depends on
+  // Tailscale SSH at all, then flip it.
   "ssh": [
     {
       "action": "accept",
       "src": ["autogroup:member"],
-      "dst": ["autogroup:self"],
+      "dst": ["tag:server", "autogroup:self"],
       "users": ["autogroup:nonroot", "root"],
     },
   ],
