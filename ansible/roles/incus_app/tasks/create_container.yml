@@ -25,7 +25,7 @@
     -c snapshots.schedule={{ app.snapshot_schedule | default(app_snapshot_schedule) }}
     -c snapshots.expiry={{ app.snapshot_expiry | default(app_snapshot_expiry) }}
     -c boot.host_shutdown_timeout=120
-  when: app.name not in app_exists.stdout
+  when: app.name not in app_exists.stdout_lines
   changed_when: true
   # limits.memory.enforce=soft, NOT the default hard: under podman-in-Incus nesting a HARD memory
   # cap OOM-kills processes INSIDE the container; soft only biases reclaim under real host pressure.
@@ -37,7 +37,7 @@
 - name: Size the container root disk (thin — only uses what it needs) — {{ app.name }}
   ansible.builtin.command: "incus config device override {{ app.name }} root size={{ app.disk_gb }}GiB"
   when:
-    - app.name not in app_exists.stdout
+    - app.name not in app_exists.stdout_lines
     - app.disk_gb is defined
   changed_when: true
 
@@ -59,14 +59,14 @@
       DNS={{ app.gw }}
       DNS=1.1.1.1
   when:
-    - app.name not in app_exists.stdout
+    - app.name not in app_exists.stdout_lines
     - app.ip | default('') | length > 0
   changed_when: true
 
 - name: Apply the static IP — {{ app.name }}
   ansible.builtin.command: "incus exec {{ app.name }} -- systemctl restart systemd-networkd"
   when:
-    - app.name not in app_exists.stdout
+    - app.name not in app_exists.stdout_lines
     - app.ip | default('') | length > 0
   changed_when: true
 
@@ -80,11 +80,11 @@
   retries: 10
   delay: 6
   changed_when: true
-  when: app.name not in app_exists.stdout
+  when: app.name not in app_exists.stdout_lines
 
 - name: Authorize the admin SSH key for root inside the container — {{ app.name }}
   ansible.builtin.command:
     cmd: "incus exec {{ app.name }} -- sh -c 'install -d -m700 /root/.ssh && tee /root/.ssh/authorized_keys >/dev/null && chmod 600 /root/.ssh/authorized_keys'"
     stdin: "{{ lookup('ansible.builtin.url', 'https://github.com/' + admin_github_user + '.keys', split_lines=false) }}"
-  when: app.name not in app_exists.stdout
+  when: app.name not in app_exists.stdout_lines
   changed_when: true

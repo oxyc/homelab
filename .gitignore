@@ -29,6 +29,12 @@ docs/
 docker/atlas-data/
 
 # Cloudflare private tunnel — real values and credentials (see cloudflare/*.example.*)
-cloudflare/access.json
-cloudflare/ingress.yml
-cloudflare/homelab-private.json
+# Deny by pattern, allow the templates back. Listing the three filenames exactly meant a second
+# tunnel's credential, a renamed config, or any new real file in here defaulted to TRACKED in a
+# public repo — the wrong default for a directory whose entire contents are either a secret or a
+# template of one.
+cloudflare/*.json
+cloudflare/*.yml
+cloudflare/*.yaml
+!cloudflare/*.example.json
+!cloudflare/*.example.yml

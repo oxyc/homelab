@@ -1,5 +1,9 @@
 # One app container: create if absent, then converge, then its export timer.
 # `app` is the loop var from main.yml.
+# `incus list <name>` is a FILTER, not an exact lookup: it also matches den-test when asked for den.
+# Every gate below therefore compares against stdout_LINES — a substring test on stdout meant one
+# similarly-named container made this role decide `den` already existed, skip creating it, and then
+# fail in the reconcile on a container that was never there.
 - name: Check if the container exists — {{ app.name }}
   ansible.builtin.command: "incus list {{ app.name }} --format csv -c n"
   register: app_exists
@@ -9,8 +13,13 @@
 - name: Create the isolated podman-capable Incus container — {{ app.name }}
   ansible.builtin.import_tasks: create_container.yml
 
+# Reconciling reads the live config, which cannot exist for a container --check only PRETENDED to
+# create. Without this gate, `make check` — the documented first step, and the one thing it cannot
+# dry-run is adding a container — aborted the whole play with "Instance not found" for any new
+# incus_apps entry, and on every bare-metal rebuild.
 - name: Converge config + devices on the existing container — {{ app.name }}
   ansible.builtin.import_tasks: reconcile_container.yml
+  when: app.name in app_exists.stdout_lines
 
 - name: Host-level export backup of the container — {{ app.name }}
   ansible.builtin.import_tasks: backup.yml
