@@ -49,17 +49,46 @@
 
 - name: Compare the live serve routes with the desired set
   vars:
-    _web: "{{ ((ts_serve_raw.stdout | default('{}') | from_json).Web | default({}, true)).values() | list | first | default({}, true) }}"
+    # `default('{}')` alone does NOT fire on an empty string, so with tailscaled down (stdout '')
+    # from_json would abort the play with "Expecting value: line 1 column 1" — a Jinja error that
+    # reads nothing like "tailscale is down". The `true` makes it fire on falsey values too.
+    _cfg: "{{ ts_serve_raw.stdout | default('{}', true) | from_json | default({}, true) }}"
+    # Keyed by "<fqdn>:<port>". Selecting `.values() | first` ignored ts_serve_port entirely: bumping
+    # the port left the old bucket's paths matching, so the compare said "in sync" while nothing
+    # listened on the new port. Pick the bucket for THIS port; anything else is not ours to compare.
+    _web: "{{ (_cfg.Web | default({}, true)) | dict2items | selectattr('key', 'search', ':' ~ ts_serve_port ~ '$') | map(attribute='value') | first | default({}, true) }}"
     _handlers: "{{ _web.Handlers | default({}, true) | dict2items }}"
+    # `value.Proxy` with a default: a hand-added Text/Path handler has no Proxy key, and bare
+    # map(attribute='Proxy') crashed on it — precisely the foreign state this role exists to correct.
+    # An empty string can never equal a desired target, so it drives a reapply instead.
+    _have_proxy: "{{ _handlers | map(attribute='value.Proxy', default='') | list }}"
   ansible.builtin.set_fact:
-    ts_serve_have: "{{ _handlers | map(attribute='key') | zip(_handlers | map(attribute='value') | map(attribute='Proxy')) | map('join', ' ') | sort | list }}"
+    ts_serve_have: "{{ _handlers | map(attribute='key') | zip(_have_proxy) | map('join', ' ') | sort | list }}"
     ts_serve_want: "{{ ts_serve_routes | map(attribute='path') | zip(ts_serve_routes | map(attribute='target')) | map('join', ' ') | sort | list }}"
+    # Funnel is what turns this tailnet-only listener into a PUBLIC one, and it lives outside
+    # Handlers, so the comparison above cannot see it. Today the tailnet policy grants no funnel
+    # attribute so the command would be refused — but that guard is in the admin console, not here,
+    # and one ACL edit removes it silently. Treat any funnel on our port as drift.
+    ts_serve_funnel: "{{ (_cfg.AllowFunnel | default({}, true)) | dict2items | selectattr('key', 'search', ':' ~ ts_serve_port ~ '$') | selectattr('value') | list | length > 0 }}"
   when: ts_serve_routes | length > 0
+
+# `command` tasks skip under --check, so without this the recap for a drifted box is identical to an
+# in-sync one: changed=0 and a row of "skipping". incus_app/reconcile_container.yml solves the same
+# problem the same way — print the drift, then act on it.
+- name: Show the serve drift that would be corrected
+  ansible.builtin.debug:
+    msg:
+      - "live:    {{ ts_serve_have }}"
+      - "desired: {{ ts_serve_want }}"
+      - "funnel:  {{ ts_serve_funnel }} (true = this port is PUBLIC and will be reset)"
+  when:
+    - ts_serve_routes | length > 0
+    - ts_serve_have != ts_serve_want or ts_serve_funnel
 
 - name: Reapply the serve routes
   when:
     - ts_serve_routes | length > 0
-    - ts_serve_have != ts_serve_want
+    - ts_serve_have != ts_serve_want or ts_serve_funnel
   block:
     - name: Clear the current serve config
       ansible.builtin.command: tailscale serve reset

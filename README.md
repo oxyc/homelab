@@ -109,7 +109,11 @@ backup restores its state. All three are needed and the **order matters** — th
 established by actually rehearsing it against den's restic backup on 2026-09-11.
 
 1. **Host** — `--tags host`: `incus_host` (lvm-thin pool, the `default` profile that gives each guest
-   its root disk and an `eth0` on `vmbr0`), then `host_hardening`, then `tailscale`.
+   its root disk and an `eth0` on `vmbr0`), then `host_hardening`. **Then `--tags remote`** for
+   `tailscale` (join + `serve`) and the private Cloudflare tunnel — both are tagged `remote`, not
+   `host`, so a rebuild that runs only `--tags host` comes back with no tailnet and no serve routes.
+   Note `inventory.yml`'s `ansible_host` is the *tailnet* name, which does not resolve until this
+   step has run: target the LAN IP for the first play on a bare box.
 2. **Shell** — `--tags app`: `incus_app` launches the container from the matching `incus_apps` entry
    (nesting + syscall intercepts, autostart, delete-protection, snapshot schedule, root disk), writes
    the static IP *inside* the guest as a systemd-networkd unit when `ip:` is set, installs ssh + your
@@ -124,9 +128,14 @@ established by actually rehearsing it against den's restic backup on 2026-09-11.
 4. **Restore state last**, with the consuming service stopped if it keeps a log or database that a
    client tracks by sequence number. See the app repo for which paths and in what order.
 
-What homelab does **not** capture, and would have to be redone by hand: `tailscale serve` (see above),
-and anything an app's own updater writes on the box (e.g. pinned image digests — recoverable by
-letting the updater run, but the record of *which* digest was live is not).
+What homelab does **not** capture, and would have to be redone by hand: anything an app's own updater
+writes on the box (e.g. pinned image digests — recoverable by letting the updater run, but the record
+of *which* digest was live is not). `tailscale serve` used to be on this list and no longer is.
+
+> A rebuild starts from `group_vars/all.example.yml`, not from the gitignored `all.yml`. A key that
+> exists only in the latter is captured by the role and still absent on a rebuilt host — which is how
+> `ts_serve_routes` and `tunnel_enabled` were "in Ansible" and missing from a rebuild at the same
+> time. Adding a var to the real file means adding it to the example too.
 
 `ansible/inventory.yml` is gitignored and is the only description of your guests' shells. It is small
 (~1.4 KB without comments) — keep a copy somewhere off this machine, or a rebuild starts by guessing

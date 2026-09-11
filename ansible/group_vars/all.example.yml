@@ -21,6 +21,22 @@ compose_profiles: []
 ts_authkey: "{{ lookup('ansible.builtin.env', 'TS_AUTHKEY') }}"
 ts_hostname: pve              # tailnet node name -> `ssh root@pve`
 
+# `tailscale serve`: the tailnet-only HTTPS front door, one port, a path per service. This is the
+# ONLY remote path to anything that cannot go through Cloudflare (video — see cloudflare/README.md),
+# so a rebuilt host with this list empty comes back missing that path entirely and silently.
+# A target WITHOUT a path strips the prefix (/scout/x -> :8080/x); WITH one it is kept.
+ts_serve_port: 8443
+ts_serve_routes: []
+# ts_serve_routes:
+#   - {path: /,      target: "http://192.168.x.x:8094"}
+#   - {path: /scout, target: "http://192.168.x.x:8080"}
+#   - {path: /remux, target: "http://192.168.x.x:8095/remux"}
+
+# The PRIVATE Cloudflare tunnel (den, Home Assistant later — everything behind a login). Opt-in.
+# Needs cloudflare/ingress.yml and cloudflare/homelab-private.json present before the play runs;
+# see cloudflare/README.md. Left false here so a fresh clone does not fail on missing credentials.
+tunnel_enabled: false
+
 # Host hardening
 admin_user: oxyc
 admin_github_user: oxyc        # SSH keys auto-pulled from https://github.com/<user>.keys
