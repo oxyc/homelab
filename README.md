@@ -37,14 +37,17 @@ not the host's (den's is 991, the host's 993), so `incus_app` looks it up at pro
 a literal would break silently on a new base image: the device appears, owned by the wrong group, and
 a non-root process just cannot open it.
 
-### Not in Ansible: `tailscale serve`
+### `tailscale serve` is in Ansible now
 
-The host also publishes den over the tailnet with `tailscale serve` — currently
-`:8443/` → `.193:8094`, `/atlas` → `:8081`, `/scout` → `:8080`. This is **deliberately not**
-provisioned by the `tailscale` role: the routes belong to the Den Web plan (P4, which adds `:443`
-for the web app) and will keep moving, so pinning them in Ansible would just create churn. The role
-will not wipe them, but a rebuilt host would not have them either — re-add by hand, or check with
-`tailscale serve status`.
+It used to say here that the routes "will keep moving, so pinning them in Ansible would just create
+churn", and that a rebuilt host simply would not have them. That stopped being defensible once
+den-reel and den-remux had no Cloudflare route: the tailnet became the *only* way to reach video
+from outside the house, and a hand-added proxy config recorded nowhere is exactly what left den's
+export timer and its systemd units to be discovered by accident months later.
+
+`ts_serve_routes` (role defaults, real targets in the gitignored vars) is now the source of truth.
+There is no `serve set-raw`, so the role diffs the live config and only resets + re-adds when it
+differs — a re-run with nothing to do reports `changed=0`.
 
 ## Layout
 
@@ -106,7 +109,11 @@ backup restores its state. All three are needed and the **order matters** — th
 established by actually rehearsing it against den's restic backup on 2026-09-11.
 
 1. **Host** — `--tags host`: `incus_host` (lvm-thin pool, the `default` profile that gives each guest
-   its root disk and an `eth0` on `vmbr0`), then `host_hardening`, then `tailscale`.
+   its root disk and an `eth0` on `vmbr0`), then `host_hardening`. **Then `--tags remote`** for
+   `tailscale` (join + `serve`) and the private Cloudflare tunnel — both are tagged `remote`, not
+   `host`, so a rebuild that runs only `--tags host` comes back with no tailnet and no serve routes.
+   Note `inventory.yml`'s `ansible_host` is the *tailnet* name, which does not resolve until this
+   step has run: target the LAN IP for the first play on a bare box.
 2. **Shell** — `--tags app`: `incus_app` launches the container from the matching `incus_apps` entry
    (nesting + syscall intercepts, autostart, delete-protection, snapshot schedule, root disk), writes
    the static IP *inside* the guest as a systemd-networkd unit when `ip:` is set, installs ssh + your
@@ -121,9 +128,14 @@ established by actually rehearsing it against den's restic backup on 2026-09-11.
 4. **Restore state last**, with the consuming service stopped if it keeps a log or database that a
    client tracks by sequence number. See the app repo for which paths and in what order.
 
-What homelab does **not** capture, and would have to be redone by hand: `tailscale serve` (see above),
-and anything an app's own updater writes on the box (e.g. pinned image digests — recoverable by
-letting the updater run, but the record of *which* digest was live is not).
+What homelab does **not** capture, and would have to be redone by hand: anything an app's own updater
+writes on the box (e.g. pinned image digests — recoverable by letting the updater run, but the record
+of *which* digest was live is not). `tailscale serve` used to be on this list and no longer is.
+
+> A rebuild starts from `group_vars/all.example.yml`, not from the gitignored `all.yml`. A key that
+> exists only in the latter is captured by the role and still absent on a rebuilt host — which is how
+> `ts_serve_routes` and `tunnel_enabled` were "in Ansible" and missing from a rebuild at the same
+> time. Adding a var to the real file means adding it to the example too.
 
 `ansible/inventory.yml` is gitignored and is the only description of your guests' shells. It is small
 (~1.4 KB without comments) — keep a copy somewhere off this machine, or a rebuild starts by guessing
@@ -138,6 +150,40 @@ you don't have): `make hooks`. The same checks run in GitHub Actions on every pu
 Real IPs live only in `docker/.env` (`PROXMOX_IP` — legacy var name, now the Debian host — `HA_IP`,
 `SCRYPTED_HOST`) — the placeholders below stand in for them. `pve` is the Tailscale MagicDNS name (the
 host's `ts_hostname`), so it resolves from any device on the tailnet with no IP to remember.
+
+### The three ways in to den
+
+Three doors into one room: the services listen on plain LAN ports, and both remote paths proxy to
+those same ports. `<den>` is den's LAN address, `<tailnet>` the MagicDNS name, `<domain>` the zone.
+
+| service | port | LAN | tailnet (`tailscale serve`) | Cloudflare |
+|---|---|---|---|---|
+| den-edge | 8094 | `<den>:8094` | `/` | `d.<domain>` *(Access)* + `d-api.<domain>` *(bypass)* |
+| den-scout | 8080 | `<den>:8080` | `/scout` | `d-scout.<domain>` *(Access + TV token)* + `d-play.<domain>` *(bypass, `/p/…` only)* |
+| den-atlas | 8081 | `<den>:8081` | `/atlas` | `d-atlas.<domain>` *(Access + TV token)* |
+| den-subtitles | 8093 | `<den>:8093` | `/subs` | `d-subs.<domain>` *(Access + TV token)* |
+| den-reel | 8092 | `<den>:8092` | `/reel` | — **video** |
+| den-remux | 8095 | `<den>:8095` | `/remux` | — **video** |
+| den-embed | — | — | — | — internal only |
+
+```bash
+https://<tailnet>:8443/scout/manifest.json    # tailnet, real public-CA TLS, no ports opened
+```
+
+**The two blanks are the design, not a gap.** Cloudflare's terms restrict serving video through the
+CDN/Tunnel outside its paid video products, and a strike would land on the account that also serves
+gondola — so den-reel and den-remux are deliberately absent from the tunnel, and the tailnet is
+their only route in from outside. See `cloudflare/README.md`.
+
+**den-embed is not reachable and should stay that way.** It is den-scout's embedding sidecar,
+unpublished on den's podman network, reached only by scout over that network. Exposing it would
+mean publishing a host port first (den's repo, not this one) and would hand an inference endpoint —
+the most CPU-expensive thing on the box — to anything that could reach it, for no user-facing
+benefit. Debug it with `incus exec den -- podman exec …`, not a route.
+
+**Prefix handling bites.** A `serve` target *without* a path strips the prefix
+(`/scout/manifest.json` → `:8080/manifest.json`); one *with* a path keeps it, which is what
+den-remux expects (`:8095/remux`). Getting it backwards 404s.
 
 **Incus (CLI — there is no web UI)**
 
