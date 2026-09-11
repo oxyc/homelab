@@ -1,15 +1,44 @@
-# incus_app: provision a bare, isolated, PODMAN-capable Incus container + host-level export backup.
-# NOTHING app-specific — the app's own repo installs podman + its runtime + secrets + app-data
+# incus_app: provision bare, isolated, PODMAN-capable Incus containers + host-level export backups.
+# NOTHING app-specific — each app's own repo installs podman + its runtime + secrets + app-data
 # backup on top (reusing the exact provisioner it uses elsewhere). Opt-in via app_enabled.
 #
-# Handoff: this creates a container named {{ app_name }} at {{ app_ip | default('DHCP') }},
-# reachable by key-only SSH as root; the app then runs its own provisioner against it (see
-# docs/gondola.md). Today the box runs two such containers — gondola (this role's defaults) and
-# den — each provisioned by its own repo on top of a bare container like this.
-- name: Create the isolated podman-capable Incus container
-  ansible.builtin.import_tasks: create_container.yml
-  when: not molecule_test
+# Handoff: this creates each container reachable by key-only SSH as root; the app then runs its own
+# provisioner against it (see docs/gondola.md). Today the box runs two — gondola and den — each
+# provisioned by its own repo on top of a bare container like this.
+#
+# The role now does two distinct things per app, and the split matters:
+#   create_container.yml     runs ONCE, when the container does not exist (launch, static IP, ssh)
+#   reconcile_container.yml  runs EVERY time, converging config + devices on an existing container
+# Before the reconcile step existed this role could only ever create, so the repo silently drifted
+# from the box (see the `limits` note in defaults/main.yml).
+- name: Resolve the effective app list
+  ansible.builtin.set_fact:
+    _incus_apps: >-
+      {{
+        incus_apps if (incus_apps | length > 0)
+        else [{
+          'name': app_name,
+          'ip': app_ip | default(''),
+          'gw': app_gw | default(''),
+          'disk_gb': app_disk_gb,
+          'snapshot_schedule': app_snapshot_schedule,
+          'snapshot_expiry': app_snapshot_expiry
+        }]
+      }}
 
-- name: Host-level export backup of the container
-  ansible.builtin.import_tasks: backup.yml
+# Loud, because the legacy path cannot describe den and that is the whole reason this list exists.
+- name: Warn when running from the legacy single-app vars
+  ansible.builtin.debug:
+    msg: >-
+      incus_apps is empty — falling back to the legacy app_* vars for '{{ app_name }}' only.
+      Any other container on this box (e.g. den) is NOT managed. Move to `incus_apps` in inventory
+      to describe them; see ansible/inventory.example.yml.
+  when: incus_apps | length == 0
+
+- name: Provision each app container
+  ansible.builtin.include_tasks: app.yml
+  loop: "{{ _incus_apps }}"
+  loop_control:
+    loop_var: app
+    label: "{{ app.name }}"
   when: not molecule_test

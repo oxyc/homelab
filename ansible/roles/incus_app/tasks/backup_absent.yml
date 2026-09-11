@@ -1,0 +1,40 @@
+# `backup: false` — decommission the host-level export for this app.
+#
+# Skipping the install tasks is NOT enough, and the difference matters: den's export timer was
+# hand-installed and lived on this box for months without appearing in any repo. If `backup: false`
+# only meant "don't install", then setting it would leave that timer running while the repo claimed
+# the app had no backup — the exact class of silent drift this role now exists to end. Stating false
+# has to MEAN false on the box.
+#
+# Removal is deliberately limited to the units and the script. Existing tarballs under
+# {{ nvr_mount }}/backups are left alone: turning a schedule off should not delete the history it
+# already produced, and those files are the only copy of whatever it was protecting.
+- name: Stop and disable the export timer — {{ app.name }}
+  ansible.builtin.systemd:
+    name: "incus-export-{{ app.name }}.timer"
+    enabled: false
+    state: stopped
+  failed_when: false          # not an error if it was never installed
+
+- name: Remove the export units and script — {{ app.name }}
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "/etc/systemd/system/incus-export-{{ app.name }}.timer"
+    - "/etc/systemd/system/incus-export-{{ app.name }}.service"
+    - "/usr/local/bin/incus-export-{{ app.name }}"
+  register: _backup_removed
+
+- name: Reload systemd after removing the export units — {{ app.name }}
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: _backup_removed is changed
+
+- name: Note the retained tarballs — {{ app.name }}
+  ansible.builtin.debug:
+    msg: >-
+      {{ app.name }}: host-level export decommissioned. Existing tarballs in
+      {{ nvr_mount }}/backups were NOT deleted — remove them by hand once you are sure whatever they
+      protected is either reproducible or backed up elsewhere.
+  when: _backup_removed is changed

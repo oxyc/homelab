@@ -1,0 +1,118 @@
+# Converge an EXISTING container's Incus config + devices. This is the half the role never had: every
+# task in create_container.yml is gated on "does not exist", so before this file the repo could
+# describe a box it had no power to correct, and did — see the `limits` note in defaults/main.yml.
+#
+# Two rules make that safe to switch on:
+#   1. Only keys stated here are managed. Anything not in `_desired` is left exactly as found, so
+#      omitting `limits` means "the box is right" rather than "remove the limits".
+#   2. The drift is PRINTED before anything is applied, and the read tasks run under --check, so
+#      `--check --diff` shows the real change set against the real box without touching it.
+- name: Reset per-app reconcile facts — {{ app.name }}
+  ansible.builtin.set_fact:
+    _drift: []
+    _gpu_gid: ""
+
+- name: Read the live container config — {{ app.name }}
+  ansible.builtin.command: "incus config show {{ app.name }}"
+  register: _cfg_raw
+  changed_when: false
+  check_mode: false
+
+- name: Parse the live config — {{ app.name }}
+  ansible.builtin.set_fact:
+    _cur: "{{ (_cfg_raw.stdout | from_yaml).config | default({}, true) }}"
+    _devs: "{{ (_cfg_raw.stdout | from_yaml).devices | default({}, true) }}"
+
+# Values are compared as strings because that is what `incus config show` returns.
+- name: Build the desired config — {{ app.name }}
+  ansible.builtin.set_fact:
+    _desired: >-
+      {{
+        {
+          'security.nesting': 'true',
+          'security.syscalls.intercept.mknod': 'true',
+          'security.syscalls.intercept.setxattr': 'true',
+          'boot.autostart': 'true',
+          'boot.host_shutdown_timeout': '120',
+          'security.protection.delete': 'true'
+        }
+        | combine({'snapshots.schedule': app.snapshot_schedule} if app.snapshot_schedule is defined else {})
+        | combine({'snapshots.expiry': app.snapshot_expiry} if app.snapshot_expiry is defined else {})
+        | combine({
+            'limits.cpu': app.limits.cpu | string,
+            'limits.memory': (app.limits.memory | string) ~ 'MiB',
+            'limits.memory.enforce': 'soft'
+          } if app.limits is defined else {})
+      }}
+
+- name: Collect config drift — {{ app.name }}
+  ansible.builtin.set_fact:
+    _drift: "{{ _drift + [item] }}"
+  loop: "{{ _desired | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when: (_cur[item.key] | default('')) != item.value
+
+- name: Show the config drift this run would fix — {{ app.name }}
+  ansible.builtin.debug:
+    msg: >-
+      {{ app.name }}: {{ item.key }} is
+      '{{ _cur[item.key] | default('<unset>') }}' -> would set '{{ item.value }}'
+  loop: "{{ _drift }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Converge container config — {{ app.name }}
+  ansible.builtin.command: "incus config set {{ app.name }} {{ item.key }} {{ item.value }}"
+  loop: "{{ _drift }}"
+  loop_control:
+    label: "{{ item.key }}"
+  changed_when: true
+
+# ── GPU device ──────────────────────────────────────────────────────────────────────────────────
+# The gid on an Incus `gpu` device is the owner gid of the device node INSIDE the container, so it
+# must be that container's render group — not the host's. They differ here: the host's render gid is
+# 993 and den's is 991. Hardcoding 991 in this repo would couple homelab to den's base image and fail
+# SILENTLY on a rebuild (device present, wrong group, non-root user simply cannot open it), so the
+# number is looked up in the container at provision time instead.
+- name: Resolve the container's render group gid — {{ app.name }}
+  ansible.builtin.command: "incus exec {{ app.name }} -- getent group render"
+  register: _render_grp
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: app.gpu | default(false)
+
+- name: Record the render gid — {{ app.name }}
+  ansible.builtin.set_fact:
+    _gpu_gid: "{{ _render_grp.stdout.split(':')[2] }}"
+  when:
+    - app.gpu | default(false)
+    - _render_grp.rc | default(1) == 0
+    - _render_grp.stdout | default('') | length > 0
+
+- name: Warn when the render group cannot be resolved — {{ app.name }}
+  ansible.builtin.debug:
+    msg: >-
+      {{ app.name }}: gpu requested but the render group could not be read (container stopped, or no
+      render group in its base image). Leaving the gpu device untouched rather than guessing a gid.
+  when:
+    - app.gpu | default(false)
+    - _gpu_gid | length == 0
+
+- name: Attach the shared iGPU — {{ app.name }}
+  ansible.builtin.command: "incus config device add {{ app.name }} gpu gpu gid={{ _gpu_gid }}"
+  when:
+    - app.gpu | default(false)
+    - _gpu_gid | length > 0
+    - "'gpu' not in _devs"
+  changed_when: true
+
+- name: Correct the iGPU device gid — {{ app.name }}
+  ansible.builtin.command: "incus config device set {{ app.name }} gpu gid={{ _gpu_gid }}"
+  when:
+    - app.gpu | default(false)
+    - _gpu_gid | length > 0
+    - "'gpu' in _devs"
+    - (_devs.gpu.gid | default('')) != _gpu_gid
+  changed_when: true

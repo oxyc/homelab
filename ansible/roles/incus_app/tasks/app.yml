@@ -1,0 +1,22 @@
+# One app container: create if absent, then converge, then its export timer.
+# `app` is the loop var from main.yml.
+- name: Check if the container exists — {{ app.name }}
+  ansible.builtin.command: "incus list {{ app.name }} --format csv -c n"
+  register: app_exists
+  changed_when: false
+  check_mode: false          # a read; must run under --check so the reconcile diff is real
+
+- name: Create the isolated podman-capable Incus container — {{ app.name }}
+  ansible.builtin.import_tasks: create_container.yml
+
+- name: Converge config + devices on the existing container — {{ app.name }}
+  ansible.builtin.import_tasks: reconcile_container.yml
+
+- name: Host-level export backup of the container — {{ app.name }}
+  ansible.builtin.import_tasks: backup.yml
+  when: app.backup | default(true)
+
+# `backup: false` has to mean false ON THE BOX, not merely "don't install" — see backup_absent.yml.
+- name: Decommission the host-level export — {{ app.name }}
+  ansible.builtin.import_tasks: backup_absent.yml
+  when: not (app.backup | default(true))

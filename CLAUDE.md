@@ -1,6 +1,6 @@
 # CLAUDE.md — repo conventions
 
-Single-host home server on **Debian 13 + Incus** (migrated off Proxmox — see `docs/decisions.md` D14; tailnet name is still `pve`), provisioned with Ansible. Runs today: two podman-capable Incus containers — **gondola** (grocery-tracker) + **den** (Stremio addons), each self-provisioned by its own repo. Planned: Frigate (NVR) + Scrypted (HomeKit/HKSV, **disabled by default**) + Home Assistant + Caddy.
+Single-host home server on **Debian 13 + Incus** (migrated off Proxmox — see `docs/decisions.md` D14; tailnet name is still `pve`), provisioned with Ansible. Runs today: two podman-capable Incus containers — **gondola** (grocery-tracker) + **den** (Stremio addons, den-edge, den-remux; holds the shared iGPU), each self-provisioned by its own repo. Both container *shells* are described in `incus_apps` (inventory); `incus_app` both creates and **reconciles** them — omitting a key there means "the box is right", so adding `limits` to an app enforces them on the next play (always `--check --diff` first). Planned: Frigate (NVR) + Scrypted (HomeKit/HKSV, **disabled by default**) + Home Assistant + Caddy.
 
 ## Hard rules
 - **This repo is public. Never commit secrets.** Real values come from a Bitwarden note (`homelab-env`) → `docker/.env`, or HA `secrets.yaml`. Use `{FRIGATE_*}` (Frigate), `!secret` (HA), `{env.*}` (Caddy), `${VAR}` (shell/`.env`). Only `.env.example` (placeholders) is committed.

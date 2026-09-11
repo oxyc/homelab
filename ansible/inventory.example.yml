@@ -15,12 +15,90 @@ all:
     # incus_thinpool: data
     # incus_bridge: vmbr0
 
-    # app container (OPT-IN — set app_enabled: true in group_vars). A bare podman-capable Incus
-    # container an app's own repo provisions on top of (currently gondola.uy). den is provisioned
-    # the same way from its own repo. Homelab owns only the container shell.
-    app_name: gondola
-    app_ip: ""                         # empty = DHCP (gondola is reached via its Cloudflare tunnel)
-    app_gw: 192.168.x.1                # LAN gateway (only used when app_ip is set, e.g. den)
+    # ── app containers (OPT-IN — set app_enabled: true in group_vars) ──────────────────────────
+    # Bare podman-capable Incus containers that each app's OWN repo provisions on top of. Homelab
+    # owns only the container shell: sizing, snapshots, devices, host-level export.
+    #
+    # These entries describe the box AS IT IS. Two deliberate omissions:
+    #   * neither app sets `limits`, because neither live container has CPU/memory limits. Stating
+    #     them here would ENFORCE them on the next play and suddenly cap a running app — see the
+    #     long note in roles/incus_app/defaults/main.yml. Add `limits` only when you mean it, and
+    #     run `--check --diff` first: the reconcile step prints every change before applying it.
+    #   * den's IP is written inside the container at CREATE time, not as an Incus device, so it is
+    #     not something the reconcile step can converge on an existing container.
+    incus_apps:
+      - name: gondola
+        # DHCP: reached through its Cloudflare tunnel, so no fixed LAN address is needed.
+        disk_gb: 40                    # data+exports need >10G; thin-provisioned
+        snapshot_schedule: "@daily"
+        snapshot_expiry: "7d"
+        backup_schedule: "*-*-* 04:30:00"
+        backup_keep: 1
+        # Same reasoning as den: a REBUILD AID, not a backup, so one copy is enough. ~32 GB -> ~4.6 GB.
+        #
+        # This was 7 until gondola's restic covered its .env as well as its data. It had held only
+        # $APP_DIR/data, which left two keys with no copy but these exports — on one local disk:
+        #
+        #   VAPID_PRIVATE_KEY / VAPID_PUBLIC_KEY   browsers bind push subscriptions to the public
+        #                                          key, so losing the pair breaks EVERY existing
+        #                                          subscription and every user must re-subscribe
+        #   RECEIPT_IMAGE_NAME_SECRET              HMAC key deriving receipt image filenames
+        #                                          (src/receipts/service.ts) — lose it and the names
+        #                                          of already-stored receipts cannot be re-derived
+        #
+        # The rest (Anthropic, Resend, MercadoLibre, Cloudflare, R2) is re-issuable from the provider.
+        # Fixed in gondola's own repo (deploy/provision-host.sh). Verified 2026-09-11: snapshot
+        # 5a3f7b10 covers both paths, and a restore of .env compared sha256-identical to the live file.
+
+      - name: den
+        ip: 192.168.x.193              # clients target a fixed LAN IP (tailscale serve proxies to it)
+        gw: 192.168.x.1
+        snapshot_schedule: "@weekly"   # as the live container is configured
+        snapshot_expiry: "4w"
+        gpu: true                      # shares the iGPU with the (future) camera container.
+                                       # The device gid is resolved from den's OWN render group at
+                                       # provision time — never hardcoded, because the container's
+                                       # render gid (991) is not the host's (993) and would break
+                                       # silently on a new base image.
+        backup_schedule: "*-*-* 04:45:00"   # as the live timer is set (gondola runs at 04:30)
+        backup_keep: 1
+        # keep 1, not 7, and it is a REBUILD AID rather than a backup — the distinction is the point.
+        #
+        # den's irreplaceable state is backed up offsite by restic from den's own repo now
+        # (den-restic.timer, daily -> R2; `.env` + edge-data, ~216 KiB, restore verified). So this
+        # export no longer has to pretend to protect anything. What it still buys is speed: `incus
+        # import` brings den back without re-pulling 3.8 GB of images or re-fetching the dataset.
+        # One copy is enough for that, and it drops ~29 GB of the ~34 GB this used to cost.
+        #
+        # `backup: false` would remove it entirely (see tasks/backup_absent.yml) — reasonable once a
+        # full rebuild has actually been walked through once, but not before.
+        #
+        # The ratio that drove this, measured inside den:
+        #
+        #   3.8 GB  podman images       reproducible — re-pullable from ghcr
+        #   925 MB  caches              reproducible — reel-cache, reel-probe, scout-cache, subtitles
+        #    99 MB  atlas-data          reproducible — fetched from the oxyc/den-dataset
+        #                               `data-latest` GitHub Release (scripts/fetch-dataset.sh),
+        #                               so it is a download, not an expensive re-embed
+        #   248 KB  edge-data           NOT reproducible — den-edge's library log, inboxes and
+        #                               pairing state (device logs live in a RAM journal, not here)
+        #     2 KB  .env                NOT reproducible — the addons' *_CONFIG_KEY sealing keys.
+        #                               Lose one and every install URL sealed to it stops opening.
+        #                               Not under /var/lib/den, which is how it was missed at first.
+        #
+        # At keep: 7 this spent ~34 GB of nvr to protect ~250 KB. `incus export` cannot exclude
+        # paths, so it is all-or-nothing and can never be trimmed to just the state.
+        #
+        # Both irreplaceable paths are now backed up offsite by restic from den's own repo, per this
+        # role's rule that an app's data backup belongs to the app. Verified 2026-09-11: snapshot
+        # 915fa5a7, 216 KiB, and a restore of .env compared sha256-identical to the live file.
+        # That is what demoted this export from "backup" to "rebuild aid" and keep: 7 to keep: 1.
+
+    # Legacy single-app vars — still honoured when `incus_apps` is absent (one app only, so den goes
+    # unmanaged). Kept so an old inventory.yml keeps working; delete once you migrate to the list.
+    # app_name: gondola
+    # app_ip: ""
+    # app_gw: 192.168.x.1
 
     # UPS (OPT-IN — set ups_enabled: true) — NUT does a clean shutdown on low battery so a power cut
     # is an orderly stop, not a hard-kill. Enable ONLY after the UPS is physically connected; confirm

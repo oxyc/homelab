@@ -2,81 +2,89 @@
 # NOT install podman or anything app-specific — the app's own repo provisions the runtime on top
 # (the same provisioner it uses elsewhere), so there's one definition of "an <app> host".
 #
+# Every task here is gated on "the container does not exist". That is correct for creation, and it
+# used to be the WHOLE role — which is why nothing ever corrected drift. Ongoing convergence now
+# lives in reconcile_container.yml, which runs whether or not the container already existed.
+#
 # Unprivileged (public-facing / internet-scraping workloads must not have host privileges).
 # security.nesting + the two syscall intercepts allow ROOTFUL podman inside the unprivileged
 # container (the Incus equivalent of the old Proxmox `features: nesting=1,keyctl=1`). AppArmor
 # stays confined — note this only works on the Debian kernel; the proxmox kernel denied systemd's
 # unix sockets and forced `raw.lxc: lxc.apparmor.profile=unconfined`, which the migration retired.
-- name: Check if the app container exists
-  ansible.builtin.command: "incus list {{ app_name }} --format csv -c n"
-  register: app_exists
-  changed_when: false
-
-- name: Create a podman-capable, autostart, confined container — {{ app_name }}
+- name: Create a podman-capable, autostart, confined container — {{ app.name }}
   ansible.builtin.command: >-
-    incus launch images:debian/13 {{ app_name }}
+    incus launch images:debian/13 {{ app.name }}
     -c security.nesting=true
     -c security.syscalls.intercept.mknod=true
     -c security.syscalls.intercept.setxattr=true
     -c boot.autostart=true
     -c security.protection.delete=true
-    -c limits.cpu={{ app_cores }}
-    -c limits.memory={{ app_memory }}MiB
+    -c limits.cpu={{ app.limits.cpu | default(app_cores) }}
+    -c limits.memory={{ app.limits.memory | default(app_memory) }}MiB
     -c limits.memory.enforce=soft
-    -c snapshots.schedule={{ app_snapshot_schedule }}
-    -c snapshots.expiry={{ app_snapshot_expiry }}
+    -c snapshots.schedule={{ app.snapshot_schedule | default(app_snapshot_schedule) }}
+    -c snapshots.expiry={{ app.snapshot_expiry | default(app_snapshot_expiry) }}
     -c boot.host_shutdown_timeout=120
-  when: app_name not in app_exists.stdout
+  when: app.name not in app_exists.stdout
   changed_when: true
   # limits.memory.enforce=soft, NOT the default hard: under podman-in-Incus nesting a HARD memory
   # cap OOM-kills processes INSIDE the container; soft only biases reclaim under real host pressure.
   # security.protection.delete guards against an accidental `incus delete` nuking the app's data.
+  #
+  # Limits are applied at CREATE time from `limits` (or the legacy app_cores/app_memory defaults).
+  # Reconciliation deliberately does not touch them unless `limits` is stated — see defaults/main.yml.
 
-- name: Size the container root disk (thin — only uses what it needs)
-  ansible.builtin.command: "incus config device override {{ app_name }} root size={{ app_disk_gb }}GiB"
-  when: app_name not in app_exists.stdout
+- name: Size the container root disk (thin — only uses what it needs) — {{ app.name }}
+  ansible.builtin.command: "incus config device override {{ app.name }} root size={{ app.disk_gb }}GiB"
+  when:
+    - app.name not in app_exists.stdout
+    - app.disk_gb is defined
   changed_when: true
 
-# Pin a static LAN IP only when app_ip is set (e.g. den, whose clients target a fixed IP). An
-# app reached solely via a Cloudflare tunnel (gondola) can stay on DHCP — leave app_ip empty.
-- name: Pin a static LAN IP inside the container (when app_ip is set)
+# Pin a static LAN IP only when ip is set (e.g. den, whose clients target a fixed IP). An app reached
+# solely via a Cloudflare tunnel (gondola) can stay on DHCP — leave ip empty.
+#
+# NOTE this is written INSIDE the container, not as an Incus device — which is why `incus config show
+# den` shows no address. It is therefore invisible to the reconcile step below; treat the IP as
+# create-time state, and check it with `incus list` rather than expecting Ansible to converge it.
+- name: Pin a static LAN IP inside the container (when ip is set) — {{ app.name }}
   ansible.builtin.command:
-    cmd: "incus exec {{ app_name }} -- tee /etc/systemd/network/eth0.network"
+    cmd: "incus exec {{ app.name }} -- tee /etc/systemd/network/eth0.network"
     stdin: |
       [Match]
       Name=eth0
       [Network]
-      Address={{ app_ip }}/24
-      Gateway={{ app_gw }}
-      DNS={{ app_gw }}
+      Address={{ app.ip }}/24
+      Gateway={{ app.gw }}
+      DNS={{ app.gw }}
       DNS=1.1.1.1
   when:
-    - app_name not in app_exists.stdout
-    - app_ip | default('') | length > 0
+    - app.name not in app_exists.stdout
+    - app.ip | default('') | length > 0
   changed_when: true
 
-- name: Apply the static IP
-  ansible.builtin.command: "incus exec {{ app_name }} -- systemctl restart systemd-networkd"
+- name: Apply the static IP — {{ app.name }}
+  ansible.builtin.command: "incus exec {{ app.name }} -- systemctl restart systemd-networkd"
   when:
-    - app_name not in app_exists.stdout
-    - app_ip | default('') | length > 0
+    - app.name not in app_exists.stdout
+    - app.ip | default('') | length > 0
   changed_when: true
 
 # Just enough so the app's own provisioner can reach in (key-only SSH as root).
-- name: Bootstrap ssh + base tools inside the container (retry — net may lag boot)
+- name: Bootstrap ssh + base tools inside the container (retry — net may lag boot) — {{ app.name }}
   ansible.builtin.command: >-
-    incus exec {{ app_name }} -- sh -c
+    incus exec {{ app.name }} -- sh -c
     'apt-get update -qq && apt-get install -y -qq openssh-server python3 ca-certificates curl sudo && systemctl enable --now ssh'
   register: app_boot
   until: app_boot.rc == 0
   retries: 10
   delay: 6
   changed_when: true
-  when: app_name not in app_exists.stdout
+  when: app.name not in app_exists.stdout
 
-- name: Authorize the admin SSH key for root inside the container
+- name: Authorize the admin SSH key for root inside the container — {{ app.name }}
   ansible.builtin.command:
-    cmd: "incus exec {{ app_name }} -- sh -c 'install -d -m700 /root/.ssh && tee /root/.ssh/authorized_keys >/dev/null && chmod 600 /root/.ssh/authorized_keys'"
+    cmd: "incus exec {{ app.name }} -- sh -c 'install -d -m700 /root/.ssh && tee /root/.ssh/authorized_keys >/dev/null && chmod 600 /root/.ssh/authorized_keys'"
     stdin: "{{ lookup('ansible.builtin.url', 'https://github.com/' + admin_github_user + '.keys', split_lines=false) }}"
-  when: app_name not in app_exists.stdout
+  when: app.name not in app_exists.stdout
   changed_when: true
