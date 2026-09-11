@@ -30,8 +30,20 @@ if [ -f ansible/group_vars/all.yml ]; then
     < <(grep -oE '^[a-z_]+:' ansible/group_vars/all.example.yml | tr -d ':')
 fi
 if [ -f ansible/inventory.yml ]; then
-  for v in nvr_disk_device nvr_mount app_name; do
+  # incus_apps, not app_name: the inventory moved to a list of apps and inventory.example.yml shows
+  # app_name commented out as legacy, so this check could never pass again — three stale failures
+  # meant `make deploy` refused, the gate got bypassed in practice, and it then failed to catch a
+  # real drift (ts_serve_routes and tunnel_enabled missing from all.example.yml).
+  for v in nvr_disk_device nvr_mount incus_apps; do
     grep -qE "$v" ansible/inventory.yml || bad "inventory.yml missing: $v"
+  done
+fi
+
+# The private tunnel needs two gitignored files that nothing else checks for. Without this, a fresh
+# clone passes the gate and then dies mid-play — after the host has already been reconfigured.
+if [ -f ansible/group_vars/all.yml ] && grep -qE '^tunnel_enabled:[[:space:]]*true' ansible/group_vars/all.yml; then
+  for f in cloudflare/ingress.yml cloudflare/homelab-private.json; do
+    [ -f "$f" ] || bad "tunnel_enabled: true but $f is missing (see cloudflare/README.md)"
   done
 fi
 

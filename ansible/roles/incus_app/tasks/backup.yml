@@ -14,6 +14,12 @@
       #!/bin/sh
       set -e
       d={{ nvr_mount }}/backups
+      # incus_host mounts {{ nvr_mount }} `nofail` ON PURPOSE — a missing or renamed NVMe must not
+      # brick the boot — which makes "booted with it unmounted" an expected state, not a freak one.
+      # Without this guard mkdir -p would cheerfully create the directory on the ROOT SSD and write
+      # multi-GB exports to the one disk this repo works to keep write churn off, while reporting
+      # success and leaving the real backups stale on an unmounted drive.
+      mountpoint -q {{ nvr_mount }} || { echo "{{ nvr_mount }} is not mounted — refusing to export to the OS disk" >&2; exit 1; }
       mkdir -p "$d"
       # --instance-only: exclude the container's own snapshots from the export. The `incus snapshot`
       # ring already provides local point-in-time recovery, so bundling the whole snapshot history
@@ -27,9 +33,19 @@
       # clean point-in-time recovery path. We deliberately do NOT snapshot+copy+export a throwaway instance
       # for a "perfect" tarball: that would add nightly full-volume write churn on a longevity-sensitive SSD
       # for a loss-only, WAL-recoverable edge case.
-      incus export {{ app.name }} "$d/{{ app.name }}-$(date +%Y%m%d-%H%M%S).tar.zst" --optimized-storage --compression zstd --instance-only
+      #
+      # Written to a .part name and renamed only on success. Writing straight to the final name made
+      # a truncated export — disk full, OOM, reboot mid-write — indistinguishable from a good one,
+      # and with backup_keep=1 that is fatal rather than untidy: the next run's prune sees the
+      # truncated file as the newest backup and deletes the last known-good one. The glob below
+      # deliberately does not match .part files, so a failed run can never win the prune.
+      f="$d/{{ app.name }}-$(date +%Y%m%d-%H%M%S).tar.zst"
+      incus export {{ app.name }} "$f.part" --optimized-storage --compression zstd --instance-only
+      mv "$f.part" "$f"
       # keep the last {{ app.backup_keep | default(incus_app_backup_keep) }} exports
       ls -1t "$d"/{{ app.name }}-*.tar.zst | tail -n +{{ (app.backup_keep | default(incus_app_backup_keep)) + 1 }} | xargs -r rm -f
+      # A .part left by an earlier failure is dead weight on a disk that may be full; clear stale ones.
+      find "$d" -name "{{ app.name }}-*.tar.zst.part" -mtime +1 -delete
 
 - name: Install the backup service + timer for {{ app.name }}
   ansible.builtin.copy:
@@ -39,6 +55,16 @@
   loop:
     - name: "incus-export-{{ app.name }}.service"
       content: |
+        [Unit]
+        Description=Nightly incus export of {{ app.name }} to {{ nvr_mount }}
+        # Persistent=true on the timer fires a missed run right after boot, which can beat incusd
+        # to readiness; the export then fails for a reason that has nothing to do with backups.
+        After=incus.service
+        Wants=incus.service
+        # A backup that fails silently is worse than no backup, because backup_keep=1 is justified
+        # in the inventory by "restic covers it offsite" — a claim nobody re-checks. This is the one
+        # signal that the claim is still true.
+        OnFailure=backup-failed@%n.service
         [Service]
         Type=oneshot
         ExecStart=/usr/local/bin/incus-export-{{ app.name }}

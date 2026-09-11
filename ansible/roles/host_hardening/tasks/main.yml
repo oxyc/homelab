@@ -24,6 +24,39 @@
     path: /var/lib/vz
     state: absent
 
+# The third de-Proxmox leftover, and the one that mattered: /root/.ssh/authorized_keys was a symlink
+# into /etc/pve/priv/, the pmxcfs cluster FS, which went away with Proxmox. So root has had NO
+# working authorized_keys since the migration — every `ssh root@pve` that appeared to work was
+# Tailscale SSH, a separate daemon that does not read this file. If the tailnet were ever
+# unavailable, key-based root login did not exist as a fallback.
+#
+# It also broke the play: authorized_key cannot write through a dangling symlink, and ansible.posix
+# 2.2.0 reports that as "'NoneType' object has no attribute 'close'", which names neither the file
+# nor the cause and aborted the whole role.
+# `test -L … -a ! -e …`, not stat: ansible's stat reports a BROKEN symlink as exists=false with no
+# islnk attribute at all, so the obvious `islnk and not exists` guard silently never fires. This
+# asks the only question that matters — is it a link whose target is gone — and nothing else.
+- name: Detect a dangling /root/.ssh/authorized_keys (Proxmox pmxcfs leftover)
+  ansible.builtin.command: test -L /root/.ssh/authorized_keys -a ! -e /root/.ssh/authorized_keys
+  register: root_authkeys_dangling
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Remove the dangling Proxmox authorized_keys symlink
+  ansible.builtin.file:
+    path: /root/.ssh/authorized_keys
+    state: absent
+  when: root_authkeys_dangling.rc == 0
+
+- name: Ensure root's .ssh directory exists
+  ansible.builtin.file:
+    path: /root/.ssh
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
 # postfix ships enabled and listens on :25 purely to deliver LOCAL system mail (cron/unattended-upgrades
 # reports). Nobody reads local mail on this box, so it's ~15 MB RSS + an open listener for nothing. Mask
 # it. Side effect: mail from cron/etc is discarded (sendmail calls fail quietly) — intended.
@@ -50,10 +83,22 @@
     mode: "0440"
     validate: "visudo -cf %s"
 
+# Fetched with `uri` rather than letting authorized_key take a URL: its internal fetch fails on this
+# box with "'NoneType' object has no attribute 'close'" — an error that names neither GitHub nor the
+# key, and which aborted the whole host_hardening role (verified: the URL itself returns 200 from the
+# host). Doing the fetch explicitly also means a GitHub outage fails with a status code instead.
+- name: Fetch the admin SSH public keys from GitHub
+  ansible.builtin.uri:
+    url: "https://github.com/{{ admin_github_user }}.keys"
+    return_content: true
+  register: gh_keys
+  changed_when: false
+  check_mode: false
+
 - name: Authorize SSH keys from GitHub for admin and root
   ansible.posix.authorized_key:
     user: "{{ item }}"
-    key: "https://github.com/{{ admin_github_user }}.keys"   # module fetches the URL
+    key: "{{ gh_keys.content }}"
   loop:
     - "{{ admin_user }}"
     - root
@@ -141,6 +186,33 @@
     enabled: true
     daemon_reload: true
 
+# Adopted from the box, where it existed as a hand-written unit in no tracked file and no doc —
+# found by the same audit that found the tailscale serve routes. The 3060 micro has no room for an
+# NVMe heatsink and idles ~60C (see the smartd thresholds above), so pinning the governor is part of
+# the thermal story, not a preference: a rebuilt host without it idles hotter on the same drive this
+# repo is otherwise careful with. intel_pstate still ramps to full clocks under load.
+- name: Install the CPU governor unit (powersave at idle)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/cpu-governor.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Pin CPU governor to powersave (lower idle heat/power; intel_pstate ramps up under load)
+      After=sysinit.target
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/bin/sh -c 'for g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo powersave > "$g"; done'
+      [Install]
+      WantedBy=multi-user.target
+
+- name: Enable the CPU governor unit
+  ansible.builtin.systemd:
+    name: cpu-governor.service
+    enabled: true
+    state: started
+    daemon_reload: true
+
 - name: Enable periodic fstrim (SSD/NVMe longevity)
   ansible.builtin.systemd:
     name: fstrim.timer
@@ -224,6 +296,28 @@
     - healthcheck-ping.timer
     - healthcheck-ping.service   # oneshot → fires an immediate ping so the check goes green
   when: lookup('ansible.builtin.env', 'HEALTHCHECK_URL') | length > 0
+
+# Generic OnFailure= target, instanced by the failing unit's name (`OnFailure=backup-failed@%n.service`).
+# The liveness ping above proves the BOX is up; it says nothing about whether its backups still run.
+# Nothing on this host alerted on a failed backup before this — the exports, den's restic and
+# gondola's restic could all have been broken for months while every other signal stayed green. That
+# matters because backup_keep is 1: local depth is a single tarball, and the justification for that
+# ("restic covers it offsite") is exactly the claim a silent failure invalidates.
+- name: Install the backup-failure alert unit
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/backup-failed@.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Report that %i failed
+      [Service]
+      Type=oneshot
+      # `-` so a host with no HEALTHCHECK_URL configured still runs (and simply logs) rather than
+      # failing the alert itself, which would be a failure nobody is watching either.
+      EnvironmentFile=-/etc/homelab-healthcheck.env
+      ExecStart=/bin/sh -c 'logger -t backup-failed -p daemon.err "%i FAILED"; \
+        [ -n "$HEALTHCHECK_URL" ] || exit 0; \
+        curl -fsS -m10 --retry 3 --data-binary "$(journalctl -u %i -n 30 --no-pager)" "$HEALTHCHECK_URL/fail"'
 
 # --- PCIe stability + hardware-watchdog auto-recovery (from a real 3-week outage) ---
 # The boot NVMe (DRAM-less Realtek RTS5765DL) threw a storm of PCIe AER *correctable*

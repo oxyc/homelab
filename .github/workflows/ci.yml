@@ -28,4 +28,7 @@ jobs:
       - name: gitleaks (secret scan)
         run: docker run --rm -v "$PWD":/repo zricethezav/gitleaks:latest detect --source=/repo --no-banner
       - name: shellcheck
-        run: shellcheck scripts/*.sh docker/provision-cameras.sh .githooks/pre-commit
+        # cloudflare/apply.sh was missing here — the newest and by far the most privileged script in
+        # the repo (it can rewrite DNS and Access policy for the whole zone), and the only one never
+        # linted.
+        run: shellcheck scripts/*.sh docker/provision-cameras.sh .githooks/pre-commit cloudflare/apply.sh

@@ -6,9 +6,17 @@ root="$(git rev-parse --show-toplevel)"; cd "$root" || exit 1
 fail=0
 echo "▶ pre-commit checks"
 
-# 1) never commit a real secrets file (.env / secrets.yaml)
-if git diff --cached --name-only | grep -E '(^|/)\.env$|secrets\.yaml$'; then
-  echo "  ✖ refusing to commit a secrets file"; fail=1
+# 1) never commit a real secrets file
+# The .env/secrets.yaml pair is not the whole list any more. cloudflare/access.json carries real
+# emails and account ids, ingress.yml the LAN map, homelab-private.json the tunnel credential, and
+# the inventory/group_vars the real addresses — none of which gitleaks reliably flags, because only
+# the tunnel credential looks like a high-entropy secret. A `git add -f` or a .gitignore slip was
+# unguarded, in a PUBLIC repo. The *.example.* forms are the templates and stay allowed.
+staged="$(git diff --cached --name-only)"
+if printf '%s\n' "$staged" | grep -vE '\.example\.' \
+   | grep -E '(^|/)\.env$|secrets\.yaml$|^cloudflare/(access\.json|ingress\.ya?ml|.*private.*\.json)$|^ansible/(inventory\.yml|group_vars/all\.yml)$|^tailscale/acl\.hujson$'; then
+  echo "  ✖ refusing to commit a real-values file (the .example.* template is what belongs in git)"
+  fail=1
 fi
 
 # 2) YAML lint (optional)
