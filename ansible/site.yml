@@ -12,6 +12,25 @@
 - name: Provision homelab (Debian + Incus)
   hosts: pve
   gather_facts: true
+  pre_tasks:
+    # Before ANY role, because every one of them installs packages. The Proxmox repo outlived
+    # Proxmox: pve-no-subscription.sources is still configured and Signed-By a keyring the migration
+    # removed, so every `apt-get update` fails signature verification on it — which made the apt
+    # module fail after 5 retries and abort the whole play on its very first task. Zero pve-* or
+    # proxmox-* packages remain installed, so the repo buys nothing and costs working package
+    # management, including the unattended security updates host_hardening enables.
+    - name: Remove the Proxmox apt repository (its keyring went with Proxmox; breaks every apt update)
+      ansible.builtin.file:
+        path: /etc/apt/sources.list.d/pve-no-subscription.sources
+        state: absent
+      register: pve_repo_removed
+      tags: [always]
+
+    - name: Refresh the apt cache once the broken source is gone
+      ansible.builtin.apt:
+        update_cache: true
+      when: pve_repo_removed.changed
+      tags: [always]
   roles:
     - role: incus_host         # Debian base, Incus install + lvm-thin pool + bridged profile, NVR mount, iGPU
       tags: [host]
