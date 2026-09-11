@@ -97,6 +97,36 @@ COMPOSE_PROFILES="homekit tunnel" docker/provision-cameras.sh   # omit profiles 
 
 Common tasks via `make` (run `make help`): `validate`, `check`, `deploy`, `health`.
 
+### Rebuilding a guest from nothing
+
+Homelab creates the container *shell*; the app's own repo provisions what runs inside; the app's own
+backup restores its state. All three are needed and the **order matters** — this is the sequence,
+established by actually rehearsing it against den's restic backup on 2026-09-11.
+
+1. **Host** — `--tags host`: `incus_host` (lvm-thin pool, the `default` profile that gives each guest
+   its root disk and an `eth0` on `vmbr0`), then `host_hardening`, then `tailscale`.
+2. **Shell** — `--tags app`: `incus_app` launches the container from the matching `incus_apps` entry
+   (nesting + syscall intercepts, autostart, delete-protection, snapshot schedule, root disk), writes
+   the static IP *inside* the guest as a systemd-networkd unit when `ip:` is set, installs ssh + your
+   GitHub keys, then reconciles config and attaches devices (e.g. the shared iGPU, with the gid read
+   from that container's own render group).
+3. **Hand off to the app's repo.** Homelab stops here, deliberately. Two things it does NOT do, and
+   which have bitten a rehearsal:
+   - the app's `deploy/` tree is not a git checkout on the box — you push it from a laptop, and for a
+     private app repo that means having GitHub access first;
+   - the app's **secrets must land before its provisioner runs**, because provisioners typically
+     render per-service env files *from* that one file. Restore secrets, then provision.
+4. **Restore state last**, with the consuming service stopped if it keeps a log or database that a
+   client tracks by sequence number. See the app repo for which paths and in what order.
+
+What homelab does **not** capture, and would have to be redone by hand: `tailscale serve` (see above),
+and anything an app's own updater writes on the box (e.g. pinned image digests — recoverable by
+letting the updater run, but the record of *which* digest was live is not).
+
+`ansible/inventory.yml` is gitignored and is the only description of your guests' shells. It is small
+(~1.4 KB without comments) — keep a copy somewhere off this machine, or a rebuild starts by guessing
+IP addresses.
+
 Install the local pre-commit hook (scans for secrets, skips tools
 you don't have): `make hooks`. The same checks run in GitHub Actions on every push
 (public repo → free unlimited CI).
