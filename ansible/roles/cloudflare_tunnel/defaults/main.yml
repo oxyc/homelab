@@ -17,9 +17,12 @@ tunnel_user: cloudflared
 tunnel_config_dir: /etc/cloudflared
 
 # Source files, rendered from the *.example templates and gitignored (see cloudflare/).
+# Anchored to playbook_dir on purpose: a bare relative `src` in `copy` resolves against the ROLE's
+# files/ directory, not the playbook, so these would have silently pointed at a path that does not
+# exist.
 #   ingress.yml  -> cloudflared's own config: which hostname reaches which LAN service
 #   credentials  -> the tunnel's only credential. A secret: it belongs in your password manager too,
 #                   because losing it means re-creating the tunnel and every DNS record that points
 #                   at it.
-tunnel_ingress_src: "../cloudflare/ingress.yml"
-tunnel_credentials_src: "../cloudflare/homelab-private.json"
+tunnel_ingress_src: "{{ playbook_dir }}/../cloudflare/ingress.yml"
+tunnel_credentials_src: "{{ playbook_dir }}/../cloudflare/homelab-private.json"
