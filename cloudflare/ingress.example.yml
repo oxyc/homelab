@@ -21,7 +21,7 @@ ha-connections: 2
 # a request reaches a backend only because a rule above says so, never because it fell through.
 # Adding a service means adding a rule, which is the point — you cannot expose something by accident.
 ingress:
-  # ── Den Web ───────────────────────────────────────────────────────────────────────────────────
+  # ── Den Web (public: no Access app — access.json says why that is safe) ───────────────────────
   - hostname: d.<domain>
     service: http://<den-ip>:8094
   - hostname: d.<domain>
