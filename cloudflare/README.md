@@ -82,7 +82,10 @@ bandwidth. Both stay LAN + tailnet; a remote TV falls back to YouTube trailers. 
   zone**. The API rejects anything else with `not entitled`.
 - Universal SSL: apex and one subdomain level, as above.
 - Rule expressions: the docs' Free table lists only Path and Verified Bot as fields, but `http.host` is
-  accepted — the `/pair` rule has matched on it since 2026-09-11.
+  accepted, `in {…}` included — the `/pair` rule has matched on it since 2026-09-11, and on both names
+  since 2026-09-14.
+- Browser Integrity Check refuses Python's default User-Agent with its own 403 (`error code: 1010`) before
+  the tunnel, so any probe here names itself and trusts only answers carrying den-edge's `x-request-id`.
 - IPv6: Cloudflare documents counting IPv6 per /64 only for its *legacy* rate limiting; the current
   rules' docs are silent. den-edge buckets IPv6 by /64 itself (0.81.0), so don't lean on the edge alone.
 
