@@ -379,16 +379,23 @@ if c.get("verify_bypass", True):
         if h.get("access") != "bypass" or h.get("path_allowlist"):
             continue
         fqdn = f"{h['name']}.{zone}"
+        # Cloudflare's browser check refuses Python's default User-Agent with its own 403 ("error code:
+        # 1010") before the request reaches the tunnel, which this reported as the origin answering 403.
+        # So name ourselves, and only believe an answer den-edge wrote: it stamps x-request-id on every one.
         try:
-            rq = _u.Request(f"https://{fqdn}/", method="GET")
+            rq = _u.Request(f"https://{fqdn}/", method="GET",
+                            headers={"User-Agent": "homelab-cloudflare-apply/1"})
             with _u.urlopen(rq, timeout=15) as r:
-                code, ctype = r.status, r.headers.get("content-type", "")
+                code, ctype, rid = r.status, r.headers.get("content-type", ""), r.headers.get("x-request-id")
         except urllib.error.HTTPError as e:
-            code, ctype = e.code, e.headers.get("content-type", "")
+            code, ctype, rid = e.code, e.headers.get("content-type", ""), e.headers.get("x-request-id")
         except Exception as e:                                    # noqa: BLE001 — report, don't crash
             note("WARN", f"could not verify {fqdn} bypasses into an API: {e}")
             continue
-        if code == 404:
+        if not rid:
+            note("WARN", f"could not verify {fqdn}: {code} {ctype.split(';')[0]} came from Cloudflare, "
+                         f"not the origin")
+        elif code == 404:
             print(f"  ok             {fqdn} origin is in API mode (404 at /)")
         else:
             note("UNEXPECTED",
