@@ -1,6 +1,7 @@
 # Cloudflare — the private tunnel
 
-Everything that reaches den (and later Home Assistant) from outside the tailnet, behind a login.
+Everything that reaches den (and later Home Assistant) from outside the tailnet — behind a login, except
+the names that carry their own authority (see *The rules worth keeping*).
 Designed in [oxyc/den#15](https://github.com/oxyc/den/issues/15); this directory is the homelab half.
 
 Gondola's **public** tunnel is not described here — it belongs to `grocery-tracker` and is managed by
@@ -24,7 +25,8 @@ CF_TOKEN_FILE=~/.cf-token cloudflare/apply.sh --apply    # create what is missin
 ```
 
 `apply.sh` never deletes. `MISMATCH` and `UNEXPECTED` are reported for a human, because the blast
-radius of a wrong delete here is "a service is silently public" or "nobody can log in".
+radius of a wrong delete here is "a service is silently public" or "nobody can log in". The one thing
+it changes in place is a rate limit, whose blast radius is a threshold.
 
 ## Why this exists
 
@@ -51,8 +53,11 @@ exposing scout.
 the file. A request reaches a backend only because a rule says so.
 
 **Before adding a hostname, ask: what is its own authority, and does it survive being public?**
-Only two bypass Access today, and each carries authorisation in every request — den-edge's device API
-authorises itself, and a play ticket is good for one release for 24 hours. An addon's JSON API has no
+Three have no Access app. Two carry authorisation in every request — den-edge's device API authorises
+itself, and a play ticket is good for one release for 24 hours. The third is Den Web (`d`, `access:
+public`), open so a shared link can be browsed without an account: the library it syncs is end-to-end
+encrypted, its name refuses the TV-only routes, and den-edge relays scout to paired devices only. That
+last one is the condition — a den-edge without the scout gate must not be public. An addon's JSON API has no
 such property: bypassed, scout becomes a free public aggregator whose scraping leaves from the home
 IP, so the indexers rate-limit and blocklist *you*. That is an availability bug, not a hosting cost.
 
@@ -76,6 +81,10 @@ bandwidth. Both stay LAN + tailnet; a remote TV falls back to YouTube trailers. 
 - Rate limiting: `period` and `mitigation_timeout` must both be **10**, and there is **one rule per
   zone**. The API rejects anything else with `not entitled`.
 - Universal SSL: apex and one subdomain level, as above.
+- Rule expressions: the docs' Free table lists only Path and Verified Bot as fields, but `http.host` is
+  accepted — the `/pair` rule has matched on it since 2026-09-11.
+- IPv6: Cloudflare documents counting IPv6 per /64 only for its *legacy* rate limiting; the current
+  rules' docs are silent. den-edge buckets IPv6 by /64 itself (0.81.0), so don't lean on the edge alone.
 
 ## Token scopes
 

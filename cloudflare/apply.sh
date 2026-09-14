@@ -6,7 +6,8 @@
 #
 # Idempotent and additive: it creates what is absent and leaves what matches. It deliberately does
 # NOT delete — an unexpected Access application is reported, not removed, because the blast radius of
-# a wrong delete here is "a service is silently public" or "nobody can log in".
+# a wrong delete here is "a service is silently public" or "nobody can log in". The one thing it
+# changes in place is a rate limit that differs from access.json, whose blast radius is a threshold.
 #
 # Reads CLOUDFLARE_API_TOKEN from the environment, or from the path in CF_TOKEN_FILE. The token needs:
 #   Account | Cloudflare Tunnel        : Edit
@@ -276,11 +277,12 @@ for h in c["hostnames"]:
     fqdn = f"{h['name']}.{zone}"
     want = h["access"]
     app  = bydom.get(fqdn)
-    if want == "bypass":
-        # An Access application on a bypassed host would lock out the TVs, so its ABSENCE is the
-        # desired state and an unexpected one is worth shouting about.
-        if app: note("UNEXPECTED", f"access app on {fqdn}, which must be bypassed")
-        else:   print(f"  ok             {fqdn} bypassed (no access app)")
+    if want in ("bypass", "public"):
+        # An Access application on a bypassed host would lock out the TVs, and on a public one the
+        # visitors it is opened for, so its ABSENCE is the desired state and an unexpected one is worth
+        # shouting about. Removing it stays a human's job, like every other delete here.
+        if app: note("UNEXPECTED", f"access app on {fqdn}, which must be {want}")
+        else:   print(f"  ok             {fqdn} {want} (no access app)")
         continue
     if app:
         print(f"  ok             access app {fqdn}")
@@ -309,8 +311,22 @@ for h in c["hostnames"]:
 rl = call("GET", f"/zones/{zid}/rulesets/phases/http_ratelimit/entrypoint")
 cur = (rl.get("result") or {}).get("rules") or [] if rl.get("success") else []
 for want in c.get("rate_limits", []):
-    expr = (f'(http.host eq "{want["host"]}.{zone}" and '
-            f'starts_with(http.request.uri.path, "{want["path_prefix"]}"))')
+    # `hosts` is for a path answered on more than one name: /pair is on d-api and, with Den Web public,
+    # on d too — and the free plan allows one rule per zone, so both share it. A single `host` keeps the
+    # `eq` form, so a rule created from an older config still matches.
+    hosts = want.get("hosts") or [want["host"]]
+    label = ",".join(hosts)
+    if len(hosts) == 1:
+        on = f'http.host eq "{hosts[0]}.{zone}"'
+    else:
+        on = "http.host in {" + " ".join(f'"{h}.{zone}"' for h in hosts) + "}"
+    expr = f'({on} and starts_with(http.request.uri.path, "{want["path_prefix"]}"))'
+    rule = {"action": "block", "description": want["description"], "enabled": True,
+            "expression": expr,
+            "ratelimit": {"characteristics": ["ip.src", "cf.colo.id"],
+                          "period": want["period"],
+                          "requests_per_period": want["requests_per_period"],
+                          "mitigation_timeout": want["mitigation_timeout"]}}
     found = next((r for r in cur if want["description"] in (r.get("description") or "")), None)
     if found:
         # Matching the description alone said "ok" for a rule that had been disabled, re-scoped to
@@ -324,19 +340,20 @@ for want in c.get("rate_limits", []):
         if rlc.get("period") != want["period"]:                     bad.append("period")
         if rlc.get("mitigation_timeout") != want["mitigation_timeout"]:   bad.append("timeout")
         if found.get("action") != "block":                          bad.append("action")
-        if bad:
-            note("MISMATCH", f"rate limit {want['host']}{want['path_prefix']}: {', '.join(bad)}")
-        else:
-            print(f"  ok             rate limit {want['host']}{want['path_prefix']}")
+        if not bad:
+            print(f"  ok             rate limit {label}{want['path_prefix']}")
+            continue
+        # Updated, not only reported as an Access app would be: a rule's blast radius is one path's
+        # threshold, not "a hostname is silently public". Left to a human, widening it to a second host
+        # meant editing it in the dashboard — the unrecorded drift this script exists to prevent.
+        note("updating" if APPLY else "would update",
+             f"rate limit {label}{want['path_prefix']}: {', '.join(bad)}")
+        if APPLY:
+            ok(call("PATCH", f"/zones/{zid}/rulesets/{rl['result']['id']}/rules/{found['id']}", rule),
+               "rate limit update")
         continue
-    note(verb, f"rate limit {want['host']}{want['path_prefix']}")
+    note(verb, f"rate limit {label}{want['path_prefix']}")
     if APPLY:
-        rule = {"action": "block", "description": want["description"],
-                "expression": expr,
-                "ratelimit": {"characteristics": ["ip.src", "cf.colo.id"],
-                              "period": want["period"],
-                              "requests_per_period": want["requests_per_period"],
-                              "mitigation_timeout": want["mitigation_timeout"]}}
         if rl.get("success"):
             ok(call("POST", f"/zones/{zid}/rulesets/{rl['result']['id']}/rules", rule), "rate limit")
         else:
@@ -357,6 +374,8 @@ ensure_dns()
 if c.get("verify_bypass", True):
     import urllib.request as _u
     for h in c["hostnames"]:
+        # Not `public`: that name is meant to serve the web app, so a 404 at / is not its property. What
+        # keeps it safe is den-edge's web face — TV-only routes refused, scout relayed to paired devices.
         if h.get("access") != "bypass" or h.get("path_allowlist"):
             continue
         fqdn = f"{h['name']}.{zone}"
