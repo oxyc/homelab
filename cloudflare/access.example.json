@@ -68,11 +68,11 @@
     {
       "description": "den-edge /pair: cap online guessing against CPace",
       "hosts": ["d-api", "d"],
-      "path_prefix": "/pair",
+      "path_prefix": "/pair/open",
       "requests_per_period": 5,
       "period": 10,
       "mitigation_timeout": 10,
-      "why": "/pair is internet-facing and outside Access, so CPace's resistance to ONLINE guessing rests on den-edge's own attempt cap. WAF rules still apply to Access-bypassed paths. FREE PLAN: period and mitigation_timeout must both be 10 and there is one rule per zone — the API rejects anything else with 'not entitled'."
+      "why": "/pair is internet-facing and outside Access, so CPace's resistance to ONLINE guessing rests on den-edge's own attempt cap. Only /pair/open: it is the one step that takes a guessable 4-character nameplate. Creating a code and the relay's slot polls carry a random sid, and a pairing polls once a second from BOTH devices — which share the household's IP — so a rule on all of /pair refused every pairing within seconds (429, 'Too many tries') once d.oxy.fi was added. den-edge also caps /pair/new and /pair/open per address itself. WAF rules still apply to Access-bypassed paths. FREE PLAN: period and mitigation_timeout must both be 10 and there is one rule per zone — the API rejects anything else with 'not entitled'."
     }
   ]
 }
