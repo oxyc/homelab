@@ -27,6 +27,12 @@ ingress:
   - hostname: d.<domain>
     service: http_status:404
 
+  # Static sender/away player only. Signed media uses the home's public IP directly, never this tunnel.
+  - hostname: cast.<domain>
+    service: http://<den-ip>:8096
+  - hostname: cast.<domain>
+    service: http_status:404
+
   # ── Addon JSON APIs (behind Access) ───────────────────────────────────────────────────────────
   - hostname: d-scout.<domain>
     service: http://<den-ip>:8080
