@@ -74,7 +74,9 @@ the one-time PIN login method for this reason.
 
 **Video never goes through the tunnel.** den-reel and den-remux are absent on purpose: Cloudflare's
 terms restrict serving video through the CDN/Tunnel outside Stream/R2, and it would spend home upload
-bandwidth. Both stay LAN + tailnet; a remote TV falls back to YouTube trailers. Do not "fix" this.
+bandwidth. `cast.<domain>` is public here, but it is a tiny static sender/away-player only. Its signed
+media URL uses the home's public IP directly, through den's on-demand nft/Caddy gate; there is no
+`d-remux` hostname and no tunnel ingress to port 8095. Do not "fix" this.
 
 ## Free-plan limits, learned by hitting them
 

@@ -20,6 +20,12 @@
       "why": "Den Web, open so a shared link can be browsed without an account. Safe only because den-edge carries the authority: on this name it refuses the TV-only routes and relays scout to paired devices alone, and the library it syncs is end-to-end encrypted. Never make this public on a den-edge without the scout gate. Pairing answers here too, so the /pair rate limit names this host."
     },
     {
+      "name": "cast",
+      "service": "http://<den-ip>:8096",
+      "access": "public",
+      "why": "Static Cast sender and away-browser player. It has no API, credentials, media proxy, or server state; its exact-parent postMessage boundary accepts sessions only from Den Web. Media URLs point directly to the signed public-IP listener, never through this tunnel."
+    },
+    {
       "name": "d-scout",
       "service": "http://<den-ip>:8080",
       "access": "owners+tvs",
@@ -51,7 +57,7 @@
       "why": "scout play tickets ONLY. Separate host because the TV plays /p/<ticket> directly and scout 302s to the debrid; players repeat custom headers across redirects, so an Access token would reach the debrid's CDN on every play. A ticket is its own authority: one release, 24h. The allowlist fails closed."
     }
   ],
-  "_not_exposed": "den-reel and den-remux are absent on purpose. They serve video, and Cloudflare's terms restrict serving video through the CDN/Tunnel outside Stream/R2. Both stay LAN + tailnet; a remote TV falls back to YouTube trailers. Do not add them here.",
+  "_not_exposed": "den-reel and den-remux are absent on purpose. They serve video, and Cloudflare's terms restrict serving video through the CDN/Tunnel outside Stream/R2. Signed remux media reaches the separately firewalled public IP directly; never add that listener here.",
 
   "access_emails": ["<owner@example.com>", "<other@example.com>"],
   "session_duration": "720h",
