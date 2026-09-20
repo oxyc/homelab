@@ -89,6 +89,19 @@ bandwidth. Both stay LAN + tailnet; a remote TV falls back to YouTube trailers. 
 - IPv6: Cloudflare documents counting IPv6 per /64 only for its *legacy* rate limiting; the current
   rules' docs are silent. den-edge buckets IPv6 by /64 itself (0.81.0), so don't lean on the edge alone.
 
+## Zone settings (https, HSTS)
+
+`access.json` carries a `zone_settings` block because these are zone-wide, not per-hostname, and so
+had lived only in the dashboard. Until 2026-09-19 `http://d` answered **200 with the web app**, not a
+redirect: anyone typing the name got the library UI in cleartext, where anything on the path can
+rewrite the JavaScript that holds the library keys. `always_use_https` closes the door and HSTS stops
+it being tried again after one visit.
+
+`apply.sh` converges these, as it does a rate limit, rather than only reporting them — the blast
+radius is a redirect. **`preload` stays false.** Browsers honour a preload entry long after the header
+stops being sent, it binds every name in the zone, and it needs `max_age` ≥ 31536000 to qualify at
+all. Raise `max_age` only once you are sure nothing in the zone can ever need plain http.
+
 ## Token scopes
 
 `apply.sh` needs an API token with:
@@ -101,6 +114,7 @@ Account | Access: Organizations, Identity Providers, and Groups : Edit
 Zone    | DNS                       : Edit
 Zone    | Zone                      : Read
 Zone    | Zone WAF                  : Edit
+Zone    | Zone Settings             : Edit     <- always_use_https and HSTS
 ```
 
 Scope it to the one account and the one zone. It can rewrite your DNS, so treat it as a credential
