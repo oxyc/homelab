@@ -62,10 +62,9 @@
       "enabled": true,
       "max_age": 2592000,
       "include_subdomains": true,
-      "preload": false,
-      "nosniff": false
+      "preload": false
     },
-    "why": "Zone-wide, so it covers every name here and any added later. Without always_use_https, plain http served the web app (200, not a redirect) and anything on the path could rewrite the JavaScript that holds the library keys; HSTS stops the downgrade being attempted again after one visit. preload stays false on purpose: it is honoured by browsers long after the header stops, applies to every name in the zone, and needs max_age >= 31536000 to qualify anyway. Raise max_age only once nothing in the zone can ever need plain http."
+    "why": "Zone-wide, so it covers every name here and any added later. Omitting `nosniff` leaves whatever is live untouched: a PATCH replaces the whole HSTS object, so a field this file does not mention must be carried over rather than defaulted. Without always_use_https, plain http served the web app (200, not a redirect) and anything on the path could rewrite the JavaScript that holds the library keys; HSTS stops the downgrade being attempted again after one visit. preload stays false on purpose: it is honoured by browsers long after the header stops, applies to every name in the zone, and needs max_age >= 31536000 to qualify anyway. Raise max_age only once nothing in the zone can ever need plain http."
   },
 
   "service_tokens": [

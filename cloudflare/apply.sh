@@ -380,6 +380,11 @@ def zone_setting(name, want, show, same):
     if r is None:
         return
     have = r.get("value")
+    # `want` may be a function of what is live: a PATCH here replaces the whole object, so a field
+    # this file does not mention has to be carried over rather than defaulted, or converging one
+    # field would quietly reset another.
+    if callable(want):
+        want = want(have)
     if same(have, want):
         print(f"  ok             zone {name} {show(have)}")
         return
@@ -391,15 +396,19 @@ if zs.get("always_use_https"):
     zone_setting("always_use_https", zs["always_use_https"], str, lambda a, b: a == b)
 
 if zs.get("hsts"):
-    h_want = {"strict_transport_security": {
-        "enabled":            zs["hsts"].get("enabled", True),
-        "max_age":            zs["hsts"].get("max_age", 0),
-        "include_subdomains": zs["hsts"].get("include_subdomains", False),
-        "preload":            zs["hsts"].get("preload", False),
-        "nosniff":            zs["hsts"].get("nosniff", True)}}
-
     def hsts_of(v):
         return ((v or {}).get("strict_transport_security") or {})
+
+    def h_want(have):
+        # nosniff is the X-Content-Type-Options header and is not what this block is about. Defaulting
+        # it would let a run that only meant to fix max_age turn a protective header OFF, so when
+        # access.json is silent the live value is carried through untouched.
+        return {"strict_transport_security": {
+            "enabled":            zs["hsts"].get("enabled", True),
+            "max_age":            zs["hsts"].get("max_age", 0),
+            "include_subdomains": zs["hsts"].get("include_subdomains", False),
+            "preload":            zs["hsts"].get("preload", False),
+            "nosniff":            zs["hsts"].get("nosniff", hsts_of(have).get("nosniff", False))}}
 
     def hsts_show(v):
         s = hsts_of(v)
