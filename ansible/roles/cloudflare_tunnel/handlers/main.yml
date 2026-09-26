@@ -1,7 +1,11 @@
 - name: Restart cloudflared
-  ansible.builtin.systemd:
-    name: cloudflared-private.service
-    state: restarted
-    daemon_reload: true
-  # A restart drops the tunnel for a second or two. That is fine here: the app behind it is
-  # scale-to-zero anyway, and cloudflared re-establishes its connections on its own.
+  ansible.builtin.command: >-
+    incus exec {{ tunnel_connector_name }} --
+    sh -c 'systemctl daemon-reload && systemctl try-restart cloudflared-homelab.service'
+  changed_when: true
+  # A tunnel reconnect is sub-second and clients retry; cloudflared re-establishes its outbound
+  # connections on its own. This runs inside the dedicated connector, never on the host.
+
+- name: Reload cloudflared connector firewall
+  ansible.builtin.command: "nft -f /etc/nftables.d/cloudflared-connector.nft"
+  changed_when: true

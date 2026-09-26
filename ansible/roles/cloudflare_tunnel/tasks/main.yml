@@ -1,104 +1,316 @@
-# Install cloudflared on the HOST and run the private tunnel as a systemd service.
-#
-# Outbound-only: no port is opened on the router, and the tunnel dials Cloudflare rather than being
-# dialled. That is the whole reason this shape was chosen over a port-forward.
-- name: Create the cloudflared system user
-  ansible.builtin.user:
-    name: "{{ tunnel_user }}"
-    system: true
-    shell: /usr/sbin/nologin
-    create_home: false
-    home: "{{ tunnel_config_dir }}"
+# Run the mixed-policy homelab tunnel in a dedicated Incus network namespace. Tailscale Serve remains
+# on the host, so den-edge observes two different peer addresses and may trust CF-Connecting-IP only
+# from this connector. The old host service is removed only after the replacement is healthy.
+- name: Validate the connector network boundary
+  ansible.builtin.assert:
+    that:
+      - tunnel_connector_ip | length > 0
+      - tunnel_connector_gateway | length > 0
+      - tunnel_origins | length > 0
+      - tunnel_health_url | length > 0
+      - tunnel_connector_ip not in (tunnel_origins | map(attribute='ip') | list)
+    fail_msg: >-
+      Set the connector network, at least one distinct tunnel_origins entry, and tunnel_health_url
+      before enabling the homelab tunnel.
 
-- name: Create the cloudflared config directory
-  ansible.builtin.file:
-    path: "{{ tunnel_config_dir }}"
-    state: directory
-    owner: root
-    group: "{{ tunnel_user }}"
-    mode: "0750"
+- name: Check whether the cloudflared connector exists
+  ansible.builtin.command: "incus list {{ tunnel_connector_name }} --format csv -c n"
+  register: tunnel_connector_exists
+  changed_when: false
 
-# Pinned by version, not "latest": a tunnel that silently updates itself is a tunnel that can change
-# behaviour on a reboot you did not intend. Same reasoning as the digest pins on the app containers.
-#
-# Installed to a VERSIONED path and symlinked. get_url's default force:false means "skip if the
-# destination exists" — so pointing it straight at /usr/local/bin/cloudflared made the pin
-# decorative: bumping tunnel_version changed the URL, downloaded nothing, and left the box on
-# whatever was installed first, while the comment above claimed otherwise. A versioned dest means a
-# new version is a new file, so the bump actually happens (and the old binary stays for a rollback).
-- name: Install cloudflared {{ tunnel_version }}
+- name: Create the unprivileged cloudflared connector
+  ansible.builtin.command: >-
+    incus launch images:debian/13 {{ tunnel_connector_name }}
+    -c boot.autostart=true
+    -c boot.host_shutdown_timeout=30
+    -c security.protection.delete=true
+    -c limits.cpu=1
+    -c limits.memory=256MiB
+  when: tunnel_connector_name not in tunnel_connector_exists.stdout_lines
+  changed_when: true
+
+# A fixed MAC gives the host bridge firewall an identity that cannot be confused with another guest.
+# The address itself is configured inside the guest because vmbr0 is an unmanaged Linux bridge.
+- name: Stop the new connector before overriding its inherited NIC
+  ansible.builtin.command: "incus stop {{ tunnel_connector_name }}"
+  when: tunnel_connector_name not in tunnel_connector_exists.stdout_lines
+  changed_when: true
+
+- name: Give the connector a stable MAC address
+  ansible.builtin.command: >-
+    incus config device override {{ tunnel_connector_name }} eth0
+    parent={{ tunnel_connector_bridge }} hwaddr={{ tunnel_connector_mac }}
+  when: tunnel_connector_name not in tunnel_connector_exists.stdout_lines
+  changed_when: true
+
+- name: Start the connector with its stable MAC address
+  ansible.builtin.command: "incus start {{ tunnel_connector_name }}"
+  when: tunnel_connector_name not in tunnel_connector_exists.stdout_lines
+  changed_when: true
+
+- name: Pin the connector LAN address inside the container
+  ansible.builtin.command:
+    cmd: >-
+      incus exec {{ tunnel_connector_name }} --
+      tee /etc/systemd/network/eth0.network
+    stdin: |
+      [Match]
+      Name=eth0
+      [Network]
+      Address={{ tunnel_connector_ip }}/{{ tunnel_connector_prefix }}
+      Gateway={{ tunnel_connector_gateway }}
+      DNS={{ tunnel_connector_gateway }}
+      DNS=1.1.1.1
+      IPv6AcceptRA=no
+      LinkLocalAddressing=no
+  when: tunnel_connector_name not in tunnel_connector_exists.stdout_lines
+  changed_when: true
+
+- name: Apply the connector LAN address
+  ansible.builtin.command: >-
+    incus exec {{ tunnel_connector_name }} --
+    systemctl restart systemd-networkd
+  when: tunnel_connector_name not in tunnel_connector_exists.stdout_lines
+  changed_when: true
+
+- name: Wait for the connector network
+  ansible.builtin.command: >-
+    incus exec {{ tunnel_connector_name }} --
+    systemctl is-active systemd-networkd
+  register: connector_network
+  until: connector_network.rc == 0
+  retries: 10
+  delay: 2
+  changed_when: false
+
+- name: Verify the connector owns its dedicated source address
+  ansible.builtin.command: >-
+    incus exec {{ tunnel_connector_name }} --
+    ip -4 -o address show dev eth0
+  register: connector_addresses
+  changed_when: false
+  failed_when: >-
+    (tunnel_connector_ip ~ '/' ~ (tunnel_connector_prefix | string))
+    not in connector_addresses.stdout
+
+- name: Install connector runtime prerequisites
+  ansible.builtin.command: >-
+    incus exec {{ tunnel_connector_name }} --
+    sh -c 'dpkg-query -W ca-certificates curl >/dev/null 2>&1 ||
+    (apt-get update -qq && apt-get install -y -qq ca-certificates curl)'
+  register: connector_prerequisites
+  changed_when: "'Setting up' in connector_prerequisites.stdout"
+
+- name: Create the cloudflared user and directories inside the connector
+  ansible.builtin.command: >-
+    incus exec {{ tunnel_connector_name }} -- sh -c
+    'getent passwd {{ tunnel_user }} >/dev/null ||
+    useradd --system --home-dir {{ tunnel_config_dir }} --shell /usr/sbin/nologin {{ tunnel_user }};
+    install -d -o root -g {{ tunnel_user }} -m 0750 {{ tunnel_config_dir }}'
+  changed_when: false
+
+# Download to a versioned host path, then copy into the guest. A version bump creates a new file and
+# therefore cannot silently leave the first-installed version in place.
+- name: Download cloudflared {{ tunnel_version }}
   ansible.builtin.get_url:
-    url: "https://github.com/cloudflare/cloudflared/releases/download/{{ tunnel_version }}/cloudflared-linux-{{ tunnel_arch }}"
+    url: >-
+      https://github.com/cloudflare/cloudflared/releases/download/{{ tunnel_version }}/cloudflared-linux-{{ tunnel_arch }}
     dest: "/usr/local/lib/cloudflared-{{ tunnel_version }}"
     mode: "0755"
     owner: root
     group: root
 
-- name: Point /usr/local/bin/cloudflared at {{ tunnel_version }}
-  ansible.builtin.file:
-    src: "/usr/local/lib/cloudflared-{{ tunnel_version }}"
-    dest: /usr/local/bin/cloudflared
-    state: link
-    force: true
+- name: Read the connector cloudflared version
+  ansible.builtin.command: >-
+    incus exec {{ tunnel_connector_name }} --
+    /usr/local/bin/cloudflared version
+  register: connector_cloudflared_version
+  failed_when: false
+  changed_when: false
+
+- name: Install the pinned cloudflared binary in the connector
+  ansible.builtin.command: >-
+    incus file push /usr/local/lib/cloudflared-{{ tunnel_version }}
+    {{ tunnel_connector_name }}/usr/local/bin/cloudflared
+  when: tunnel_version not in connector_cloudflared_version.stdout
+  changed_when: true
   notify: Restart cloudflared
 
-- name: Install the tunnel credentials
+- name: Set connector binary ownership
+  ansible.builtin.command: >-
+    incus exec {{ tunnel_connector_name }} --
+    chown root:root /usr/local/bin/cloudflared
+  changed_when: false
+
+- name: Make the connector binary executable
+  ansible.builtin.command: >-
+    incus exec {{ tunnel_connector_name }} --
+    chmod 0755 /usr/local/bin/cloudflared
+  changed_when: false
+
+- name: Create a temporary host staging directory
+  ansible.builtin.tempfile:
+    state: directory
+    path: /run
+    prefix: cloudflared-connector-
+  register: tunnel_stage
+
+- name: Stage the tunnel credential on the host
   ansible.builtin.copy:
     src: "{{ tunnel_credentials_src }}"
-    dest: "{{ tunnel_config_dir }}/homelab-private.json"
-    owner: root
-    group: "{{ tunnel_user }}"
-    mode: "0640"
-  no_log: true          # the file IS the credential
-  notify: Restart cloudflared
+    dest: "{{ tunnel_stage.path }}/homelab-private.json"
+    mode: "0600"
+  no_log: true
 
-# The ingress file is the routing table, and it is the thing this role exists to deploy from the
-# repo rather than from the Cloudflare dashboard. Every hostname in it ends in a catch-all 404, so a
-# request reaches a backend only because a rule says so — check cloudflare/ingress.example.yml before
-# editing, the ordering is load-bearing.
-#
-# Validated by `copy`'s own validate hook, i.e. BEFORE the file reaches its live path. It used to be
-# a separate command task afterwards, which did not do what its name said: a typo failed the play
-# with the bad file already installed. The running cloudflared keeps its in-memory config, so
-# nothing looks broken — until the next reboot, when the tunnel does not come up and the cause is
-# weeks of commits away. host_hardening already does this properly for sudoers and nftables.
-- name: Install the ingress config
+- name: Stage the ingress config on the host
   ansible.builtin.copy:
     src: "{{ tunnel_ingress_src }}"
-    dest: "{{ tunnel_config_dir }}/config.yml"
+    dest: "{{ tunnel_stage.path }}/config.yml"
+    mode: "0600"
+
+- name: Stage the connector systemd unit on the host
+  ansible.builtin.template:
+    src: cloudflared-homelab.service.j2
+    dest: "{{ tunnel_stage.path }}/cloudflared-homelab.service"
+    mode: "0600"
+
+- name: Copy the tunnel credential into the connector
+  ansible.builtin.command: >-
+    incus file push {{ tunnel_stage.path }}/homelab-private.json
+    {{ tunnel_connector_name }}{{ tunnel_config_dir }}/homelab-private.json
+  changed_when: true
+  no_log: true
+  notify: Restart cloudflared
+
+- name: Copy the candidate ingress config into the connector
+  ansible.builtin.command: >-
+    incus file push {{ tunnel_stage.path }}/config.yml
+    {{ tunnel_connector_name }}{{ tunnel_config_dir }}/config.yml.candidate
+  changed_when: true
+
+- name: Validate the candidate ingress config inside the connector
+  ansible.builtin.command: >-
+    incus exec {{ tunnel_connector_name }} --
+    /usr/local/bin/cloudflared tunnel --config {{ tunnel_config_dir }}/config.yml.candidate ingress validate
+  changed_when: false
+
+- name: Install the validated ingress config
+  ansible.builtin.command: >-
+    incus exec {{ tunnel_connector_name }} --
+    mv {{ tunnel_config_dir }}/config.yml.candidate {{ tunnel_config_dir }}/config.yml
+  changed_when: true
+  notify: Restart cloudflared
+
+- name: Copy the systemd unit into the connector
+  ansible.builtin.command: >-
+    incus file push {{ tunnel_stage.path }}/cloudflared-homelab.service
+    {{ tunnel_connector_name }}/etc/systemd/system/cloudflared-homelab.service
+  changed_when: true
+  notify: Restart cloudflared
+
+- name: Set ownership and permissions on connector secrets and config
+  ansible.builtin.command: >-
+    incus exec {{ tunnel_connector_name }} -- sh -c
+    'chown root:{{ tunnel_user }} {{ tunnel_config_dir }}/homelab-private.json
+    {{ tunnel_config_dir }}/config.yml &&
+    chmod 0640 {{ tunnel_config_dir }}/homelab-private.json {{ tunnel_config_dir }}/config.yml &&
+    chown root:root /etc/systemd/system/cloudflared-homelab.service &&
+    chmod 0644 /etc/systemd/system/cloudflared-homelab.service'
+  changed_when: false
+
+- name: Remove the host staging directory
+  ansible.builtin.file:
+    path: "{{ tunnel_stage.path }}"
+    state: absent
+
+- name: Install the connector bridge firewall
+  ansible.builtin.template:
+    src: cloudflared-connector.nft.j2
+    dest: /etc/nftables.d/cloudflared-connector.nft
     owner: root
-    group: "{{ tunnel_user }}"
-    mode: "0640"
-    validate: "/usr/local/bin/cloudflared tunnel --config %s ingress validate"
-  notify: Restart cloudflared
-
-- name: Install the cloudflared service
-  ansible.builtin.copy:
-    dest: /etc/systemd/system/cloudflared-private.service
+    group: root
     mode: "0644"
-    content: |
-      [Unit]
-      Description=Cloudflare Tunnel (private — den, HA; behind Access)
-      After=network-online.target
-      Wants=network-online.target
+    validate: "/usr/sbin/nft -c -f %s"
+  notify: Reload cloudflared connector firewall
 
-      [Service]
-      Type=notify
-      User={{ tunnel_user }}
-      ExecStart=/usr/local/bin/cloudflared --no-autoupdate --config {{ tunnel_config_dir }}/config.yml tunnel run
-      Restart=on-failure
-      # Backoff so a boot race (network not up yet) cannot latch the tunnel OFF in a crash loop.
-      RestartSec=10
-      # --no-autoupdate: the version is pinned above and updated deliberately, like every other
-      # image on this box.
+- name: Install the connector firewall boot unit
+  ansible.builtin.template:
+    src: cloudflared-connector-firewall.service.j2
+    dest: /etc/systemd/system/cloudflared-connector-firewall.service
+    owner: root
+    group: root
+    mode: "0644"
 
-      [Install]
-      WantedBy=multi-user.target
-  notify: Restart cloudflared
-
-- name: Enable the tunnel
+- name: Enable the connector firewall at boot
   ansible.builtin.systemd:
-    name: cloudflared-private.service
+    name: cloudflared-connector-firewall.service
     enabled: true
-    state: started
     daemon_reload: true
+
+- name: Flush connector handlers before cutover
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable the connector tunnel
+  ansible.builtin.command: >-
+    incus exec {{ tunnel_connector_name }} --
+    systemctl enable --now cloudflared-homelab.service
+  register: connector_service_enable
+  changed_when: "'Created symlink' in connector_service_enable.stderr"
+
+- name: Verify the connector tunnel is running
+  ansible.builtin.command: >-
+    incus exec {{ tunnel_connector_name }} --
+    systemctl is-active cloudflared-homelab.service
+  register: connector_tunnel_active
+  changed_when: false
+  failed_when: connector_tunnel_active.stdout | trim != 'active'
+
+- name: Verify the connector has live Cloudflare connections
+  ansible.builtin.command: >-
+    incus exec {{ tunnel_connector_name }} --
+    curl --fail --silent --show-error http://127.0.0.1:20241/ready
+  register: connector_tunnel_ready
+  until: connector_tunnel_ready.rc == 0
+  retries: 12
+  delay: 5
+  changed_when: false
+
+# Cloudflare supports replicas for one tunnel, so the new connector can become healthy before the old
+# host process is stopped. Retaining the old service would recreate the ambiguous .149 source.
+- name: Cut over from the shared-source host connector
+  block:
+    - name: Stop and disable the obsolete host tunnel service
+      ansible.builtin.systemd:
+        name: cloudflared-private.service
+        enabled: false
+        state: stopped
+
+    - name: Verify public ingress after cutover
+      ansible.builtin.uri:
+        url: "{{ tunnel_health_url }}"
+        method: GET
+        status_code: 200
+      register: tunnel_public_health
+      until: tunnel_public_health.status == 200
+      retries: 6
+      delay: 5
+  rescue:
+    - name: Roll back to the host connector after a failed public health check
+      ansible.builtin.systemd:
+        name: cloudflared-private.service
+        enabled: true
+        state: started
+
+    - name: Refuse the cutover after rolling back
+      ansible.builtin.fail:
+        msg: >-
+          The dedicated connector did not serve the public health check. The old host connector was
+          restored; leave den-edge's trusted proxy list on bare .149 and inspect connector logs.
+
+# Keep the stopped unit and its config for a fast rollback while the new trust boundary beds in. It is
+# safe only while stopped: running it again makes Cloudflare traffic arrive from shared source .149.
+- name: Verify the obsolete host connector is stopped
+  ansible.builtin.command: systemctl is-active cloudflared-private.service
+  register: obsolete_tunnel_active
+  changed_when: false
+  failed_when: obsolete_tunnel_active.stdout | trim != 'inactive'

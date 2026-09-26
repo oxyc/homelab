@@ -1,16 +1,28 @@
 ---
-# The PRIVATE Cloudflare tunnel — the one tunnel for everything behind a login (den now, Home
-# Assistant later). Opt-in: only provisioned when true.
+# The homelab Cloudflare tunnel. It deliberately mixes policy at the hostname boundary: Den Web and
+# cast are public, device endpoints carry their own authority, add-on APIs are protected by Access,
+# and Home Assistant will be protected by Access when it is added. Opt-in: only provisioned when true.
 #
-# Deliberately NOT the same tunnel as gondola's. Public and private config never share one, so a
-# private route cannot be left public by accident; each has its own credential, so a leak exposes one
-# side; and gondola's blue/green deploy recreates its cloudflared, which would otherwise cut den off.
+# Deliberately NOT the same tunnel as gondola's. They have separate credentials and deploy failure
+# domains: gondola's blue/green deploy recreates its cloudflared and must not cut the homelab off.
 tunnel_enabled: false
 
-# Runs on the HOST, not in a container. The box has no podman and no docker — it is a bare Incus host
-# — so this is a plain binary plus a systemd unit. homelab's docker/quadlet/cloudflared.container was
-# written for the (still unbuilt) camera container and cannot reach den at its LAN address from there;
-# it is superseded by this role for the private tunnel.
+# cloudflared gets its own small, unprivileged Incus container and stable LAN source address. Tailscale
+# Serve stays on the host. Keeping those source addresses distinct lets den-edge trust
+# CF-Connecting-IP only from this connector without letting a Tailscale client spoof that header.
+# Set the real address/gateway in inventory; empty defaults make an accidental deployment fail closed.
+tunnel_connector_name: cloudflared
+tunnel_connector_ip: ""
+tunnel_connector_prefix: 24
+tunnel_connector_gateway: ""
+tunnel_connector_bridge: "{{ incus_bridge }}"
+tunnel_connector_mac: "00:16:3e:cf:00:01"
+tunnel_origins: []
+tunnel_health_url: ""
+
+# This is a plain pinned binary plus a systemd unit inside the connector; podman/docker would only add
+# another network layer. The historical credential filename is retained so the live secret need not be
+# renamed or recreated; it is an identifier, not a claim that every hostname is private.
 tunnel_version: "2026.3.0"          # pin, matching gondola's cloudflared image tag
 tunnel_arch: amd64
 tunnel_user: cloudflared

@@ -1,11 +1,13 @@
-# Cloudflare — the private tunnel
+# Cloudflare — the homelab tunnel
 
-Everything that reaches den (and later Home Assistant) from outside the tailnet — behind a login, except
-the names that carry their own authority (see *The rules worth keeping*).
+One mixed-policy tunnel for the homelab: Den Web and cast are public; device endpoints carry their own
+authority; add-on APIs and future Home Assistant are protected by Access. The policy boundary is each
+hostname, not the tunnel (see *The rules worth keeping*).
 Designed in [oxyc/den#15](https://github.com/oxyc/den/issues/15); this directory is the homelab half.
 
-Gondola's **public** tunnel is not described here — it belongs to `grocery-tracker` and is managed by
-its own Terraform. Two `cloudflared` total, deliberately, and no per-app tunnels.
+Gondola's tunnel is not described here — it belongs to `grocery-tracker` and is managed by its own
+Terraform. There are two `cloudflared` connectors estate-wide: Gondola's and this homelab connector.
+They remain separate credential and deploy failure domains; public-versus-private is not the reason.
 
 ## Files
 
@@ -16,13 +18,30 @@ its own Terraform. Two `cloudflared` total, deliberately, and no per-app tunnels
 | `apply.sh` | converges Cloudflare on `access.json` |
 | `homelab-private.json` *(gitignored)* | the tunnel's credential — also keep a copy in your password manager |
 
-The tunnel itself is installed on the **host** by `ansible/roles/cloudflare_tunnel` (`--tags tunnel`).
-The box has no podman and no docker, so it is a pinned binary plus a systemd unit, not a Quadlet.
+The tunnel is installed by `ansible/roles/cloudflare_tunnel` (`--tags tunnel`) as a pinned binary in a
+small unprivileged Incus container. Its stable LAN IP is deliberately different from the host running
+Tailscale Serve. That lets den-edge accept `CF-Connecting-IP` from the connector without granting a
+Tailscale request the same authority. The host bridge firewall permits the connector to reach only the
+declared Den origin ports and blocks lateral private-network access.
 
 ```bash
 CF_TOKEN_FILE=~/.cf-token cloudflare/apply.sh            # show differences, change nothing
 CF_TOKEN_FILE=~/.cf-token cloudflare/apply.sh --apply    # create what is missing
 ```
+
+The source-address migration is ordered to keep the public site up: Ansible starts the dedicated
+connector as a second replica, checks its service, then stops and removes the obsolete host unit. After
+confirming Den sees `.150` as the peer, set den-edge's trust list to the host's ordinary proxy address
+plus the connector's Cloudflare-only address, for example:
+
+```text
+EDGE_TRUSTED_PROXIES=192.168.86.149,cf:192.168.86.150
+```
+
+The role leaves the old host unit and config installed but stopped for rollback. Before the trust change,
+rollback is simply `systemctl enable --now cloudflared-private.service` on the host. After the trust
+change, restore the old bare `.149` trust before moving traffic back; never mark the shared `.149`
+source as `cf:`.
 
 `apply.sh` never deletes. `MISMATCH` and `UNEXPECTED` are reported for a human, because the blast
 radius of a wrong delete here is "a service is silently public" or "nobody can log in". The one thing

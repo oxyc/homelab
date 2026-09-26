@@ -1,0 +1,33 @@
+#!/usr/sbin/nft -f
+# {{ ansible_managed }}
+# Limit the dedicated connector's lateral reach while allowing its outbound Cloudflare connections.
+# Match both its fixed MAC and IP: another guest cannot gain these permissions by spoofing only one.
+add table bridge cloudflared_connector
+delete table bridge cloudflared_connector
+table bridge cloudflared_connector {
+  # Frames for the Incus host itself use bridge input, not forward. The connector has no reason to
+  # reach the host control plane; allowing this would leave SSH and other host listeners exposed.
+  chain input {
+    type filter hook input priority filter; policy accept;
+    ether saddr {{ tunnel_connector_mac }} drop
+  }
+
+  chain forward {
+    type filter hook forward priority filter; policy accept;
+
+    ether saddr {{ tunnel_connector_mac }} ip saddr != {{ tunnel_connector_ip }} drop
+{% for origin in tunnel_origins %}
+    ether saddr {{ tunnel_connector_mac }} ip daddr {{ origin.ip }} \
+      tcp dport { {{ origin.ports | join(', ') }} } accept
+{% endfor %}
+
+    # No lateral access to private networks. DNS to the LAN gateway is the sole exception.
+    ether saddr {{ tunnel_connector_mac }} ip daddr {{ tunnel_connector_gateway }} \
+      udp dport 53 accept
+    ether saddr {{ tunnel_connector_mac }} ip daddr {{ tunnel_connector_gateway }} \
+      tcp dport 53 accept
+    ether saddr {{ tunnel_connector_mac }} ip daddr 10.0.0.0/8 drop
+    ether saddr {{ tunnel_connector_mac }} ip daddr 172.16.0.0/12 drop
+    ether saddr {{ tunnel_connector_mac }} ip daddr 192.168.0.0/16 drop
+  }
+}

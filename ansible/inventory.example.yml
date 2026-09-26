@@ -116,5 +116,16 @@ all:
     docker_lxc_ip: 192.168.x.x         # static LAN IP for the camera container (VLAN10, e.g. .10.10)
     docker_lxc_gw: 192.168.x.1         # its gateway (+ DNS)
 
+    # Dedicated homelab Tunnel connector. It must not share the host/Tailscale source address:
+    # den-edge trusts CF-Connecting-IP only when the TCP peer is this address.
+    tunnel_connector_ip: 192.168.x.x
+    tunnel_connector_gateway: 192.168.x.1
+    tunnel_origins:
+      - ip: 192.168.x.x                 # den container LAN IP
+        ports: [8080, 8081, 8093, 8094, 8096]
+      # Add Home Assistant here when its tunnel ingress is enabled:
+      # - {ip: 192.168.x.x, ports: [8123]}
+    tunnel_health_url: https://d.example.com/health
+
     # docker stack source (this repo, synced into the camera container)
     compose_src: "../docker"
