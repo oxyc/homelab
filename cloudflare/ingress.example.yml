@@ -1,5 +1,6 @@
 # Copy to cloudflare/ingress.yml (gitignored) and fill in. This is cloudflared's own config file for
-# the PRIVATE tunnel, deployed to the pve host by the `cloudflare_tunnel` role.
+# the mixed-policy homelab tunnel, deployed to its dedicated Incus connector by the
+# `cloudflare_tunnel` role.
 #
 # It is a file rather than dashboard config because the tunnel is LOCALLY managed (config_src: local).
 # The routes churn — den's hostnames will move as the Den Web plan lands — and churn is exactly what

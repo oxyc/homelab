@@ -39,11 +39,15 @@ if [ -f ansible/inventory.yml ]; then
   done
 fi
 
-# The private tunnel needs two gitignored files that nothing else checks for. Without this, a fresh
+# The homelab tunnel needs two gitignored files that nothing else checks for. Without this, a fresh
 # clone passes the gate and then dies mid-play — after the host has already been reconfigured.
 if [ -f ansible/group_vars/all.yml ] && grep -qE '^tunnel_enabled:[[:space:]]*true' ansible/group_vars/all.yml; then
   for f in cloudflare/ingress.yml cloudflare/homelab-private.json; do
     [ -f "$f" ] || bad "tunnel_enabled: true but $f is missing (see cloudflare/README.md)"
+  done
+  for v in tunnel_connector_ip tunnel_connector_gateway tunnel_origins tunnel_health_url; do
+    grep -qE "^[[:space:]]*$v:" ansible/inventory.yml || \
+      bad "tunnel_enabled: true but inventory.yml is missing $v"
   done
 fi
 

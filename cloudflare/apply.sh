@@ -163,7 +163,7 @@ def ensure_dns():
             if APPLY:
                 ok(call("POST", f"/zones/{zid}/dns_records",
                         {"type": "CNAME", "name": h["name"], "content": target, "proxied": True,
-                         "comment": "private tunnel (cloudflare/access.json)"}), f"dns {fqdn}")
+                         "comment": "homelab tunnel (cloudflare/access.json)"}), f"dns {fqdn}")
 
 # ── service tokens ──────────────────────────────────────────────────────────────────────────────
 svc_ids = {}

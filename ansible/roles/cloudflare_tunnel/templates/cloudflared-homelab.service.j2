@@ -1,0 +1,20 @@
+[Unit]
+Description=Cloudflare Tunnel (homelab mixed-policy ingress)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+User={{ tunnel_user }}
+ExecStart=/usr/local/bin/cloudflared --no-autoupdate --config {{ tunnel_config_dir }}/config.yml tunnel run
+Restart=on-failure
+RestartSec=10
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths={{ tunnel_config_dir }}
+
+[Install]
+WantedBy=multi-user.target

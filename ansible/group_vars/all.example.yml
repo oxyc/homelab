@@ -32,7 +32,7 @@ ts_serve_routes: []
 #   - {path: /scout, target: "http://192.168.x.x:8080"}
 #   - {path: /remux, target: "http://192.168.x.x:8095/remux"}
 
-# The PRIVATE Cloudflare tunnel (den, Home Assistant later — everything behind a login). Opt-in.
+# The mixed-policy homelab tunnel (public Den plus Access-protected add-ons/HA). Opt-in.
 # Needs cloudflare/ingress.yml and cloudflare/homelab-private.json present before the play runs;
 # see cloudflare/README.md. Left false here so a fresh clone does not fail on missing credentials.
 tunnel_enabled: false

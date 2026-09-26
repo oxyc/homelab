@@ -44,8 +44,8 @@
     - role: incus_app          # OPT-IN (app_enabled): a bare isolated podman-capable container (its app self-provisions)
       tags: [app]
       when: app_enabled | default(false)
-    - role: cloudflare_tunnel  # OPT-IN (tunnel_enabled): the PRIVATE tunnel — everything behind a login (den, HA later)
-      tags: [tunnel, remote]   # Runs on the HOST: no podman here, so a binary + systemd unit, not a Quadlet.
+    - role: cloudflare_tunnel  # OPT-IN: mixed-policy homelab tunnel (public Den + Access-protected services)
+      tags: [tunnel, remote]   # Runs in a dedicated Incus connector so its trusted-proxy source is unique.
       when: tunnel_enabled | default(false)
     - role: ha_container       # FUTURE (ha_enabled): Home Assistant Container + Mosquitto (podman + Quadlet) in an Incus container
       tags: [ha]

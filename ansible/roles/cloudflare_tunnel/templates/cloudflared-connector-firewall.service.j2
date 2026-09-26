@@ -1,0 +1,12 @@
+[Unit]
+Description=Restrict the dedicated cloudflared connector's lateral network access
+After=network-pre.target
+Before=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/nft -f /etc/nftables.d/cloudflared-connector.nft
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

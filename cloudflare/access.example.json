@@ -1,5 +1,5 @@
 {
-  "_": "Copy to cloudflare/access.json (gitignored) and fill in. Desired state for the PRIVATE tunnel. Apply with cloudflare/apply.sh. JSON, not YAML, because no python on the admin box or the host has PyYAML and this script stays stdlib-only. The long-form reasoning lives in cloudflare/README.md; each entry's `why` is the short version.",
+  "_": "Copy to cloudflare/access.json (gitignored) and fill in. Desired state for the mixed-policy homelab tunnel. Apply with cloudflare/apply.sh. JSON, not YAML, because no python on the admin box or the host has PyYAML and this script stays stdlib-only. The long-form reasoning lives in cloudflare/README.md; each entry's `why` is the short version.",
 
   "account_id": "<32-hex account id>",
   "zone": "<example.com>",
