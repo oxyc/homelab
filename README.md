@@ -71,7 +71,7 @@ won't deploy.
 | `ansible/group_vars/all.example.yml` | `ansible/group_vars/all.yml` | mostly defaults; set `ha_ip` to the HA container |
 | `ansible/inventory.example.yml` | `ansible/inventory.yml` | Debian host IP, container IP + gateway |
 | `tailscale/acl.hujson.example` | `tailscale/acl.hujson` | tailnet policy (`grants` + SSH); generic single-user, nothing to fill — paste into the console |
-| `cloudflare/access.example.json` | `cloudflare/access.json` | private-tunnel desired state: hostnames, Access emails, rate limits (see `cloudflare/README.md`) |
+| `cloudflare/access.example.json` | `cloudflare/access.json` | private-tunnel desired state: hostnames, Access, cache/rate rules (see `cloudflare/README.md`) |
 | `cloudflare/ingress.example.yml` | `cloudflare/ingress.yml` | cloudflared's routing table — which hostname reaches which LAN service |
 | `proxmox/answer.toml.example` | `proxmox/answer.toml` | *(optional)* unattended install: hashed root pw + email |
 

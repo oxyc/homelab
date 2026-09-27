@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Converge Cloudflare (DNS + Access + rate limits) on cloudflare/access.json.
+# Converge Cloudflare (DNS + Access + cache/rate rules) on cloudflare/access.json.
 #
 #   cloudflare/apply.sh --check    # print what differs, change nothing  (DEFAULT)
 #   cloudflare/apply.sh --apply    # create what is missing
@@ -17,6 +17,7 @@
 #   Zone    | DNS                      : Edit
 #   Zone    | Zone                     : Read
 #   Zone    | Zone WAF                 : Edit
+#   Zone    | Cache Rules              : Edit     <- exact-path service-worker bypass
 #   Zone    | Zone Settings            : Edit     <- always_use_https and HSTS, below
 #
 # Secrets this prints and you must store OUT of band, in the password manager:
@@ -361,6 +362,58 @@ for want in c.get("rate_limits", []):
             ok(call("POST", f"/zones/{zid}/rulesets",
                     {"name": "default", "kind": "zone", "phase": "http_ratelimit", "rules": [rule]}),
                "rate limit ruleset")
+
+# ── cache rules ──────────────────────────────────────────────────────────────────────────────────
+# Service workers are authority-bearing bootstrap code, not immutable assets. An exact-path bypass
+# lets den-edge's `Cache-Control: no-cache` reach browsers and prevents a broad zone default from
+# serving an old worker for hours. Hashed JS/CSS stay on their normal one-year CDN path.
+cr = call("GET", f"/zones/{zid}/rulesets/phases/http_request_cache_settings/entrypoint")
+if cr.get("success"):
+    cache_ruleset = cr.get("result")
+elif any(e.get("code") == 10003 for e in cr.get("errors", [])):
+    # A zone with no rules in this phase has no entrypoint yet; the first desired rule creates it.
+    cache_ruleset = None
+else:
+    ok(cr, "read cache rules")
+    print("  ! cannot continue without cache rules — refusing to infer absence from a failed read",
+          file=sys.stderr)
+    sys.exit(1)
+cache_current = (cache_ruleset or {}).get("rules") or []
+for want in c.get("cache_rules", []):
+    fqdn = f'{want["host"]}.{zone}'
+    expr = f'(http.host eq "{fqdn}" and http.request.uri.path eq "{want["path"]}")'
+    params = {"cache": bool(want.get("cache", True))}
+    rule = {"action": "set_cache_settings", "action_parameters": params,
+            "description": want["description"], "enabled": True, "expression": expr}
+    found = next((r for r in cache_current
+                  if r.get("description") == want["description"]), None)
+    bad = []
+    if found:
+        if not found.get("enabled", True):                         bad.append("disabled")
+        if found.get("expression") != expr:                        bad.append("expression")
+        if found.get("action") != "set_cache_settings":           bad.append("action")
+        if found.get("action_parameters") != params:               bad.append("settings")
+        if not bad:
+            print(f'  ok             cache rule {fqdn}{want["path"]}')
+            continue
+        note("updating" if APPLY else "would update",
+             f'cache rule {fqdn}{want["path"]}: {", ".join(bad)}')
+        if APPLY:
+            ok(call("PATCH", f'/zones/{zid}/rulesets/{cache_ruleset["id"]}/rules/{found["id"]}',
+                    rule), "cache rule update")
+        continue
+    note(verb, f'cache rule {fqdn}{want["path"]}')
+    if APPLY:
+        if cache_ruleset:
+            ok(call("POST", f'/zones/{zid}/rulesets/{cache_ruleset["id"]}/rules', rule),
+               "cache rule")
+        else:
+            result = ok(call("POST", f"/zones/{zid}/rulesets",
+                             {"name": "default", "kind": "zone",
+                              "phase": "http_request_cache_settings", "rules": [rule]}),
+                        "cache ruleset")
+            if result:
+                cache_ruleset = result
 
 # ── zone settings ───────────────────────────────────────────────────────────────────────────────
 # Until 2026-09-19 plain http served the web app: http://d answered 200, so anyone who typed the name
