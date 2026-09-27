@@ -11,7 +11,7 @@ its own Terraform. Two `cloudflared` total, deliberately, and no per-app tunnels
 
 | | |
 |---|---|
-| `access.example.json` → `access.json` *(gitignored)* | desired state: hostnames, who may pass Access, rate limits |
+| `access.example.json` → `access.json` *(gitignored)* | desired state: hostnames, Access, cache rules and rate limits |
 | `ingress.example.yml` → `ingress.yml` *(gitignored)* | cloudflared's own config: which hostname reaches which LAN service |
 | `apply.sh` | converges Cloudflare on `access.json` |
 | `homelab-private.json` *(gitignored)* | the tunnel's credential — also keep a copy in your password manager |
@@ -25,8 +25,8 @@ CF_TOKEN_FILE=~/.cf-token cloudflare/apply.sh --apply    # create what is missin
 ```
 
 `apply.sh` never deletes. `MISMATCH` and `UNEXPECTED` are reported for a human, because the blast
-radius of a wrong delete here is "a service is silently public" or "nobody can log in". The one thing
-it changes in place is a rate limit, whose blast radius is a threshold.
+radius of a wrong delete here is "a service is silently public" or "nobody can log in". Cache and rate
+rules, and zone settings, are converged in place because their narrow match is recorded here.
 
 ## Why this exists
 
@@ -116,6 +116,7 @@ Account | Access: Organizations, Identity Providers, and Groups : Edit
 Zone    | DNS                       : Edit
 Zone    | Zone                      : Read
 Zone    | Zone WAF                  : Edit
+Zone    | Cache Rules               : Edit     <- exact-path service-worker bypass
 Zone    | Zone Settings             : Edit     <- always_use_https and HSTS
 ```
 

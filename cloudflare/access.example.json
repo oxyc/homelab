@@ -81,6 +81,16 @@
     }
   ],
 
+  "cache_rules": [
+    {
+      "description": "Den Web service worker: always revalidate",
+      "host": "d",
+      "path": "/sw.js",
+      "cache": false,
+      "why": "A service worker controls every app navigation and must revalidate its tiny bootstrap on each visit. Bypassing Cloudflare's edge cache preserves den-edge's Cache-Control: no-cache instead of letting a zone default hold an old worker for four hours. Its imported hashed assets remain immutable and CDN-cached."
+    }
+  ],
+
   "rate_limits": [
     {
       "description": "den-edge /pair: cap online guessing against CPace",
