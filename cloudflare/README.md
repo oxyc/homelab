@@ -1,6 +1,6 @@
 # Cloudflare — the homelab tunnel
 
-One mixed-policy tunnel for the homelab: Den Web and cast are public; device endpoints carry their own
+One mixed-policy tunnel for the homelab: Den Web, the static Den TV UI and cast are public; device endpoints carry their own
 authority; add-on APIs and future Home Assistant are protected by Access. The policy boundary is each
 hostname, not the tunnel (see *The rules worth keeping*).
 Designed in [oxyc/den#15](https://github.com/oxyc/den/issues/15); this directory is the homelab half.
@@ -72,8 +72,9 @@ exposing scout.
 the file. A request reaches a backend only because a rule says so.
 
 **Before adding a hostname, ask: what is its own authority, and does it survive being public?**
-Three have no Access app. Two carry authorisation in every request — den-edge's device API authorises
-itself, and a play ticket is good for one release for 24 hours. The third is Den Web (`d`, `access:
+Four have no Access app. Two carry authorisation in every request — den-edge's device API authorises
+itself, and a play ticket is good for one release for 24 hours. Den TV (`den-tv`, `access: public`) is a static-only
+host face whose build calls the device API; putting an interactive login in front of it breaks TV startup. Den Web (`d`, `access:
 public`), open so a shared link can be browsed without an account: the library it syncs is end-to-end
 encrypted, its name refuses the TV-only routes, and den-edge relays scout to paired devices only. That
 last one is the condition — a den-edge without the scout gate must not be public. An addon's JSON API has no
