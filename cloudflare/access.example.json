@@ -20,6 +20,12 @@
       "why": "Den Web, open so a shared link can be browsed without an account. Safe only because den-edge carries the authority: on this name it refuses the TV-only routes and relays scout to paired devices alone, and the library it syncs is end-to-end encrypted. Never make this public on a den-edge without the scout gate. Pairing answers here too, so the /pair rate limit names this host."
     },
     {
+      "name": "den-tv",
+      "service": "http://<den-ip>:8094",
+      "access": "public",
+      "why": "Static smart-TV UI only. The dedicated den-edge host face serves no API; LG and Samsung call the existing self-authorizing d-api hostname. Interactive Access login is not reliable for TV startup or background requests."
+    },
+    {
       "name": "cast",
       "service": "http://<den-ip>:8096",
       "access": "public",

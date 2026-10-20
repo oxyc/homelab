@@ -28,6 +28,12 @@ ingress:
   - hostname: d.<domain>
     service: http_status:404
 
+  # Dedicated static smart-TV UI. Its API calls use d-api.<domain>; media never traverses the tunnel.
+  - hostname: den-tv.<domain>
+    service: http://<den-ip>:8094
+  - hostname: den-tv.<domain>
+    service: http_status:404
+
   # Static sender/away player only. Signed media uses the home's public IP directly, never this tunnel.
   - hostname: cast.<domain>
     service: http://<den-ip>:8096
