@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=notify
 User={{ tunnel_user }}
-ExecStart=/usr/local/bin/cloudflared --no-autoupdate --config {{ tunnel_config_dir }}/config.yml tunnel run
+ExecStart=/usr/local/bin/cloudflared --no-autoupdate --metrics {{ tunnel_metrics_address }} --config {{ tunnel_config_dir }}/config.yml tunnel run
 Restart=on-failure
 RestartSec=10
 

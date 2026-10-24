@@ -13,10 +13,19 @@
 tunnel: <32-hex tunnel id>
 credentials-file: /etc/cloudflared/homelab-private.json
 
-# Two connections rather than the default four, matching gondola's tunnel. This is a home box and a
-# handful of devices; four HA connections is four idle TLS sessions and four sets of keepalives for
-# no benefit at this scale.
-ha-connections: 2
+# No `protocol:` setting here on purpose: cloudflared's default is quic, which is the better transport —
+# faster handshakes, no head-of-line blocking, survives a network change. Recorded so the experiment is
+# not repeated: it was once set to http2 while chasing a ~20 s time-to-first-byte ceiling through the
+# tunnel that the origin never saw, the ceiling survived the switch unchanged, and it was reverted. A
+# protocol change is a plausible-sounding fix for a latency ceiling and was the wrong one. Measure which
+# hop is actually slow before changing transport.
+
+# Four connections — cloudflared's default. This once ran at 2 ("enough for a home box"), but 2 left
+# Cloudflare's edge holding bursts of uncached requests ~1–20 s before they reached the connector (the
+# origin answered in ~5 ms once they did). A measured A/B: at 2, 77/3000 uncached requests took >3 s
+# (worst 19.8 s); at 4, 0/4500 did (worst 1.7 s). Four gives the edge more origin paths to spread
+# across. Don't drop to 2 to save idle keepalives — it reintroduces the stall.
+ha-connections: 4
 
 # Every hostname ends in a catch-all 404, and the FINAL rule is a 404 too. Default-deny per hostname:
 # a request reaches a backend only because a rule above says so, never because it fell through.

@@ -28,6 +28,17 @@ tunnel_arch: amd64
 tunnel_user: cloudflared
 tunnel_config_dir: /etc/cloudflared
 
+# cloudflared's diagnostics server (Prometheus /metrics plus /ready). 20241 is cloudflared's own
+# default and the readiness check below already assumed it; pinning it with --metrics just makes that
+# assumption explicit so a future cloudflared that moves its default cannot silently break the check or
+# a scrape. Bound to LOOPBACK inside the connector netns on purpose — the endpoint is unauthenticated,
+# so it is never put on the LAN; reach it with
+#   incus exec cloudflared -- curl -s http://127.0.0.1:20241/metrics
+# It exposes QUIC per-connection RTT/loss/cwnd, concurrency, response-code and proxy-error counts.
+# It does NOT expose per-request durations — cloudflared records none; split latency per leg from the
+# client and den-edge's arrival logs instead.
+tunnel_metrics_address: "127.0.0.1:20241"
+
 # Source files, rendered from the *.example templates and gitignored (see cloudflare/).
 # Anchored to playbook_dir on purpose: a bare relative `src` in `copy` resolves against the ROLE's
 # files/ directory, not the playbook, so these would have silently pointed at a path that does not

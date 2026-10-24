@@ -154,6 +154,11 @@
     path: /run
     prefix: cloudflared-connector-
   register: tunnel_stage
+  # Runs under --check too, or `tunnel_stage.path` is never registered and every task below it fails
+  # to resolve its dest — which made this role impossible to dry-run at all. Creating a staging
+  # directory under /run changes nothing that outlives the play; the cleanup task below is exempted
+  # for the same reason, so a --check run does not leave one behind.
+  check_mode: false
 
 - name: Stage the tunnel credential on the host
   ansible.builtin.copy:
@@ -222,6 +227,7 @@
   ansible.builtin.file:
     path: "{{ tunnel_stage.path }}"
     state: absent
+  check_mode: false
 
 - name: Install the connector bridge firewall
   ansible.builtin.template:
@@ -268,7 +274,7 @@
 - name: Verify the connector has live Cloudflare connections
   ansible.builtin.command: >-
     incus exec {{ tunnel_connector_name }} --
-    curl --fail --silent --show-error http://127.0.0.1:20241/ready
+    curl --fail --silent --show-error http://{{ tunnel_metrics_address }}/ready
   register: connector_tunnel_ready
   until: connector_tunnel_ready.rc == 0
   retries: 12
