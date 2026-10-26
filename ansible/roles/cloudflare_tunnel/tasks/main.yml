@@ -116,6 +116,20 @@
     url: >-
       https://github.com/cloudflare/cloudflared/releases/download/{{ tunnel_version }}/cloudflared-linux-{{ tunnel_arch }}
     dest: "/usr/local/lib/cloudflared-{{ tunnel_version }}"
+    checksum: "sha256:{{ tunnel_sha256 }}"
+    mode: "0755"
+    owner: root
+    group: root
+
+# The obsolete host unit below is kept STOPPED as a rollback path, and its ExecStart runs this binary.
+# Keep it on the pinned version too: a rollback that fires must not start an unpatched cloudflared, and
+# an affected binary sitting on the host is one stray `systemctl start` from running. Safe to overwrite
+# in place because that unit is inactive — `copy` stages and renames, so there is no ETXTBSY either way.
+- name: Keep the host rollback binary on the pinned version
+  ansible.builtin.copy:
+    src: "/usr/local/lib/cloudflared-{{ tunnel_version }}"
+    dest: /usr/local/bin/cloudflared
+    remote_src: true
     mode: "0755"
     owner: root
     group: root
@@ -128,10 +142,24 @@
   failed_when: false
   changed_when: false
 
-- name: Install the pinned cloudflared binary in the connector
+# Two steps, because `incus file push` writes in place and the target is the RUNNING cloudflared —
+# pushing straight over it fails with ETXTBSY ("text file busy"). Push beside it and rename instead: a
+# rename over a busy executable is permitted, the running process keeps the old inode until the handler
+# restarts it, and the tunnel therefore stays up for the whole upgrade except that restart. Only the
+# first install ever worked without this, because then nothing held the path open.
+- name: Stage the pinned cloudflared binary in the connector
   ansible.builtin.command: >-
     incus file push /usr/local/lib/cloudflared-{{ tunnel_version }}
-    {{ tunnel_connector_name }}/usr/local/bin/cloudflared
+    {{ tunnel_connector_name }}/usr/local/bin/cloudflared.new
+  when: tunnel_version not in connector_cloudflared_version.stdout
+  changed_when: true
+
+- name: Install the staged cloudflared binary over the running one
+  ansible.builtin.command: >-
+    incus exec {{ tunnel_connector_name }} -- sh -c
+    'chown root:root /usr/local/bin/cloudflared.new &&
+    chmod 0755 /usr/local/bin/cloudflared.new &&
+    mv /usr/local/bin/cloudflared.new /usr/local/bin/cloudflared'
   when: tunnel_version not in connector_cloudflared_version.stdout
   changed_when: true
   notify: Restart cloudflared
