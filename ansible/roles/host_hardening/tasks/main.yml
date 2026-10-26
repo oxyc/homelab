@@ -422,6 +422,56 @@
   when: longevity_sysctl is changed
   changed_when: true
 
+# ── TCP BBR: throughput to distant viewers ──────────────────────────────────
+# Measured 2026-09-23: this link uploads 15-16 Mbit/s to a well-peered endpoint, but a viewer
+# abroad got 5.4 Mbit/s of signed media — a third of it. That gap is loss-and-latency, which is
+# what CUBIC handles badly and BBR handles well: CUBIC reads any loss as congestion and backs off,
+# while BBR models the path's actual bandwidth and round-trip time. The module ships with the
+# Debian kernel but is not loaded, so `tcp_available_congestion_control` offers only reno and cubic.
+#
+# The containers share this kernel, so it belongs here and den inherits it. Every TCP sender on the
+# box benefits: den-remux's media through Caddy, cloudflared, restic to R2.
+#
+# Deliberately NOT switching net.core.default_qdisc to fq, which most BBR guides still advise. That
+# advice predates kernels where TCP paces internally; this one is 6.12 and BBR does its own pacing.
+# fq_codel keeps the rest of the household's latency sane when den saturates that 16 Mbit/s uplink,
+# which is the realistic failure mode. Revert by deleting the two files below and rebooting.
+- name: Load tcp_bbr at boot — the module exists but nothing loads it
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/bbr.conf
+    mode: "0644"
+    content: |
+      # TCP BBR, for throughput to distant viewers of signed media. See host_hardening.
+      tcp_bbr
+  register: bbr_module
+
+- name: Load tcp_bbr now, so the sysctl below has something to select
+  community.general.modprobe:
+    name: tcp_bbr
+    state: present
+
+- name: Select BBR as the default congestion control
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/99-bbr.conf
+    mode: "0644"
+    content: |
+      # Long, lossy paths to viewers abroad: CUBIC treats loss as congestion and gives up throughput
+      # this link has. Measured ceiling 15-16 Mbit/s up; a remote viewer was getting 5.4.
+      net.ipv4.tcp_congestion_control = bbr
+      # Montevideo to Helsinki measures 253 ms. At that round trip, 16 Mbit/s needs ~500 KB in flight,
+      # and the distro default caps these at 208 KB — which is ~6.6 Mbit/s at 253 ms, suspiciously close
+      # to the 5.4 a viewer in Finland saw. These caps bind only when an application sets its own socket
+      # buffer (autotuning uses tcp_wmem instead), so this removes a candidate rather than fixing a known
+      # fault. They are ceilings, not allocations: nothing is reserved by raising them.
+      net.core.wmem_max = 8388608
+      net.core.rmem_max = 8388608
+  register: bbr_sysctl
+
+- name: Apply the BBR sysctl now
+  ansible.builtin.command: sysctl --system
+  when: bbr_sysctl is changed or bbr_module is changed
+  changed_when: true
+
 - name: Disable swap in fstab so there are no swap-out writes to the SSD
   ansible.builtin.replace:
     path: /etc/fstab
