@@ -140,5 +140,21 @@ Zone    | Cache Rules               : Edit     <- exact-path service-worker bypa
 Zone    | Zone Settings             : Edit     <- always_use_https and HSTS
 ```
 
-Scope it to the one account and the one zone. It can rewrite your DNS, so treat it as a credential
-with a short life: create it for a change, delete it after.
+Scope it to the one account and the one zone — not the public-media zone, which has its own token on
+the box for the listener's DNS self-healing. Keeping them separate means neither can touch the other's
+records.
+
+The token is kept, not created per change: it lives in the `homelab-env` Bitwarden note and in
+`~/.cf-token` (0600, outside the repo so it cannot be committed). Give it a real expiry, a few months
+out, so a forgotten token cannot outlive its usefulness in silence.
+
+Two things that cost time once each, worth knowing before they cost it again:
+
+- **`"status": "active"` from `/user/tokens/verify` only means "not revoked".** A token can verify as
+  active and still be unusable, because a TTL can put `not_before` in the future. The dry run below is
+  the real test.
+- **Every permission above is load-bearing, and a missing one does not always announce itself.**
+  Dropping `Cache Rules` makes `apply.sh` exit before it reaches DNS — by design, since it refuses to
+  infer "no cache rules exist" from a read it was not allowed to make. Editing a token in the
+  dashboard re-submits the whole permission form, so check the list afterwards: this has already
+  happened once, to this token, while only its TTL was being changed.
