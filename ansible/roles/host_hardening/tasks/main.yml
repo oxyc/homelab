@@ -124,12 +124,41 @@
     name: unattended-upgrades
     state: present
 
-- name: Enable automatic security updates (no auto-reboot of the host)
+- name: Enable automatic security updates
   ansible.builtin.copy:
     dest: /etc/apt/apt.conf.d/20auto-upgrades
     content: |
       APT::Periodic::Update-Package-Lists "1";
       APT::Periodic::Unattended-Upgrade "1";
+    mode: "0644"
+
+# This host used to refuse auto-reboots on purpose: a reboot interrupts playback, and a box that does
+# not come back is worse than a box running an old kernel. 2026-10-31 showed the other side of that
+# trade. unattended-upgrades had installed 6.12.111 and 6.12.113 weeks earlier, `linux-image-amd64`
+# already pointed at the fixed version, and /var/run/reboot-required had been set since 2026-10-17 —
+# but nothing reboots this box, so it ran 6.12.107 for two weeks with CVE-2026-98432 (a remotely
+# reachable use-after-free in tcp_v4_syn_recv_sock, CVSS 9.8) while the fix sat on disk, unused.
+# Installing a kernel nobody boots is not patching.
+#
+# A reboot is cheap here and now measured: 50 seconds, and every guest returns on boot.autostart.
+# 04:30 local is the quietest hour. unattended-upgrades reboots ONLY when reboot-required exists, so
+# this stays idle in every month without a kernel update.
+#
+# Deliberately a separate file, not 50unattended-upgrades, which is the package's own conffile and
+# would prompt on upgrade. Reboot-WithUsers is explicit because this box is headless: a forgotten SSH
+# session must not be what postpones a security reboot indefinitely.
+#
+# Known lag: apt-daily-upgrade runs around 06:00, so the reboot it schedules lands at the NEXT 04:30,
+# roughly 22 hours later. A day, against the two weeks that prompted this. If that is ever too slow,
+# move apt-daily-upgrade.timer earlier rather than making this reboot on sight.
+- name: Reboot automatically for updates that need it (04:30, only when one is pending)
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/52homelab-auto-reboot
+    content: |
+      // Managed by host_hardening. See the comment there for why this host reboots itself.
+      Unattended-Upgrade::Automatic-Reboot "true";
+      Unattended-Upgrade::Automatic-Reboot-WithUsers "true";
+      Unattended-Upgrade::Automatic-Reboot-Time "04:30";
     mode: "0644"
 
 # fail2ban intentionally omitted: SSH is not internet-exposed (Tailscale-only, no port-forward),
