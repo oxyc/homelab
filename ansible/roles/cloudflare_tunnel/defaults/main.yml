@@ -23,8 +23,17 @@ tunnel_health_url: ""
 # This is a plain pinned binary plus a systemd unit inside the connector; podman/docker would only add
 # another network layer. The historical credential filename is retained so the live secret need not be
 # renamed or recreated; it is an identifier, not a claim that every hostname is private.
-tunnel_version: "2026.3.0"          # pin, matching gondola's cloudflared image tag
+# 2026.10.4 is a SECURITY floor, not a preference. Cloudflare's 2026-10-20 advisory: eight eMudhra
+# (emSign) intermediate certificates were found to use weak private keys, and cloudflared before
+# 2026.10.2 still trusts them — anyone holding those keys could impersonate a service to the connector.
+# 2026.10.4 additionally carries VULN-176088 (the metrics server's debug endpoints are now allowlisted),
+# which matters here because `tunnel_metrics_port` below is scraped. Do not pin back below this.
+tunnel_version: "2026.10.4"
 tunnel_arch: amd64
+# sha256 of cloudflared-linux-{{ tunnel_arch }}, from the release body (Cloudflare publishes the digests
+# there, not as a release asset). ARCH-SPECIFIC: bumping the version or the arch means changing both
+# lines. A mismatch fails the download instead of installing something unexpected, which is the point.
+tunnel_sha256: "ae5e8add7884b0531d66bbca4570d1de491ff6da51e4ebe7eb160cdf241d9e42"
 tunnel_user: cloudflared
 tunnel_config_dir: /etc/cloudflared
 
