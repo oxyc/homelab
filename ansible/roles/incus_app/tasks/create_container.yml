@@ -56,8 +56,14 @@
       [Network]
       Address={{ app.ip }}/24
       Gateway={{ app.gw }}
-      DNS={{ app.gw }}
+      # Two independent public resolvers, and deliberately NOT the LAN gateway. On 2026-11-07 the
+      # consumer router started dropping ~70% of LAN packets without failing outright; resolved kept
+      # retrying it as primary instead of failing over, so every container lookup stalled for seconds
+      # (indexer and TorBox requests timing out, one source query taking 18s) while the box itself was
+      # perfectly healthy. A flaky primary is worse than a dead one. The trade is that `.lan` names no
+      # longer resolve — nothing here uses them; this repo addresses LAN services by IP.
       DNS=1.1.1.1
+      DNS=9.9.9.9
   when:
     - app.name not in app_exists.stdout_lines
     - app.ip | default('') | length > 0
