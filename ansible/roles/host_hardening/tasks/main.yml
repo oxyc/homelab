@@ -451,6 +451,31 @@
   when: longevity_sysctl is changed
   changed_when: true
 
+# ── Host DNS: two public resolvers, independent of tailscaled ───────────────
+# Tailscale's accept-dns wrote `nameserver 100.100.100.100` as the host's ONLY resolver, so every
+# host lookup — apt, unattended-upgrades, restic to R2 — died with tailscaled while the box itself
+# looked healthy. Two resolvers from different operators remove both that single point of failure
+# and the LAN gateway, which on 2026-11-07 dropped ~70% of packets without failing outright.
+# Trade: no MagicDNS on the host (`ssh pve` from a laptop is unaffected — that uses the laptop's
+# resolver). Revert with `tailscale set --accept-dns=true`.
+# Safe to own this file outright: vmbr0 is static, neither resolvconf nor systemd-resolved is
+# installed, and networkd is inactive, so nothing else writes it once Tailscale stops.
+- name: Stop tailscaled from owning the host's resolv.conf
+  ansible.builtin.command: tailscale set --accept-dns=false
+  changed_when: false   # idempotent; Tailscale stores this in its prefs
+
+- name: Point the host at two independent public resolvers
+  ansible.builtin.copy:
+    dest: /etc/resolv.conf
+    mode: "0644"
+    content: |
+      # Managed by Ansible (host_hardening). See that role for why tailscaled does not own this.
+      nameserver 1.1.1.1
+      nameserver 9.9.9.9
+      # Fail over in 2s rather than glibc's default 5s: a resolver that is up but unreachable
+      # should cost one retry, not five seconds on every lookup.
+      options timeout:2 attempts:2
+
 # ── TCP BBR: throughput to distant viewers ──────────────────────────────────
 # Measured 2026-09-23: this link uploads 15-16 Mbit/s to a well-peered endpoint, but a viewer
 # abroad got 5.4 Mbit/s of signed media — a third of it. That gap is loss-and-latency, which is

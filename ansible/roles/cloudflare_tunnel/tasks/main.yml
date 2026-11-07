@@ -59,8 +59,10 @@
       [Network]
       Address={{ tunnel_connector_ip }}/{{ tunnel_connector_prefix }}
       Gateway={{ tunnel_connector_gateway }}
-      DNS={{ tunnel_connector_gateway }}
+      # Public resolvers only, not the LAN gateway — see the same note in the incus_app role: a router
+      # dropping most packets without dying keeps resolved pinned to a primary that never answers.
       DNS=1.1.1.1
+      DNS=9.9.9.9
       IPv6AcceptRA=no
       LinkLocalAddressing=no
   when: tunnel_connector_name not in tunnel_connector_exists.stdout_lines
