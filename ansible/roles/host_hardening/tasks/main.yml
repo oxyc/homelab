@@ -95,10 +95,26 @@
   changed_when: false
   check_mode: false
 
+# `exclusive: true` makes GitHub the single source of truth: a key deleted there is removed from this
+# host on the next run. Without it the task is additive only, so a retired key stays authorized for
+# ever — which is the worst case for a passwordless key you believe you have stopped using. The cost
+# is that an empty key list would empty authorized_keys and lock this host out, so it is guarded: the
+# `uri` task above fails on a non-200, and the assert below covers the remaining case, a 200 whose
+# body contains no usable key.
+- name: Refuse to converge SSH keys from an empty or malformed GitHub response
+  ansible.builtin.assert:
+    that:
+      - gh_keys.content | trim | length > 0
+      - gh_keys.content is search('(?m)^(ssh-|ecdsa-)')
+    fail_msg: >-
+      github.com/{{ admin_github_user }}.keys returned no usable public key, so authorized_keys was
+      left alone. With exclusive: true, converging on that response would lock this host out.
+
 - name: Authorize SSH keys from GitHub for admin and root
   ansible.posix.authorized_key:
     user: "{{ item }}"
     key: "{{ gh_keys.content }}"
+    exclusive: true
   loop:
     - "{{ admin_user }}"
     - root
